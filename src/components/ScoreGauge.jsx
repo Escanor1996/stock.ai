@@ -1,7 +1,7 @@
 import React from 'react';
-import { Award, ShieldCheck, Sparkles, TrendingUp, Cpu, BarChart2 } from 'lucide-react';
+import { Award, ShieldCheck, Sparkles, TrendingUp, Cpu, BarChart2, RotateCw, Zap } from 'lucide-react';
 
-export default function ScoreGauge({ stock, onTriggerAI, isAILoading }) {
+export default function ScoreGauge({ stock, onTriggerScore, isScoreLoading }) {
   if (!stock) return null;
 
   const staticScore = stock.staticScore ?? stock.score ?? 50;
@@ -75,7 +75,7 @@ export default function ScoreGauge({ stock, onTriggerAI, isAILoading }) {
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 my-2 z-10">
         
         {/* Left Gauge: Deterministic Financial Score */}
-        <div className="bg-slate-900/70 rounded-xl p-4 border border-slate-800/90 flex flex-col items-center text-center relative group">
+        <div className="bg-slate-900/70 rounded-xl p-4 border border-slate-800/90 flex flex-col items-center text-center relative group justify-between">
           <div className="flex items-center justify-between w-full mb-1">
             <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
               <BarChart2 className="w-3.5 h-3.5 text-emerald-400" /> Static Financial
@@ -117,15 +117,15 @@ export default function ScoreGauge({ stock, onTriggerAI, isAILoading }) {
           </div>
 
           <p className="text-[11px] text-slate-400 mt-1 leading-snug">
-            100% deterministic score based on ROE, ROCE, margin growth & leverage.
+            Deterministic rating derived directly from reported ROE, ROCE, margin growth & leverage.
           </p>
         </div>
 
         {/* Right Gauge: AI 360° Qualitative Score */}
-        <div className="bg-slate-900/70 rounded-xl p-4 border border-slate-800/90 flex flex-col items-center text-center relative group">
+        <div className="bg-slate-900/70 rounded-xl p-4 border border-slate-800/90 flex flex-col items-center text-center relative group justify-between">
           <div className="flex items-center justify-between w-full mb-1">
             <span className="text-[11px] font-bold text-indigo-300 uppercase tracking-wider flex items-center gap-1.5">
-              <Sparkles className="w-3.5 h-3.5 text-indigo-400" /> AI 360° Verdict
+              <Sparkles className="w-3.5 h-3.5 text-indigo-400" /> AI 360° Score
             </span>
             {hasAI ? (
               <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold border ${aiTheme.badge}`}>
@@ -178,14 +178,45 @@ export default function ScoreGauge({ stock, onTriggerAI, isAILoading }) {
             </div>
           )}
 
-          <div className="flex items-center gap-1.5 mt-1">
+          {/* Dedicated AI Score Generate / Regenerate Button */}
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onTriggerScore && onTriggerScore();
+            }}
+            disabled={isScoreLoading}
+            className={`mt-2 px-3.5 py-1.5 rounded-xl text-[11px] font-bold flex items-center gap-1.5 transition-all ${
+              hasAI
+                ? 'bg-zinc-800 hover:bg-zinc-700 text-zinc-200 border border-zinc-700 hover:border-zinc-500'
+                : 'bg-gradient-to-r from-indigo-600 to-emerald-600 hover:from-indigo-500 hover:to-emerald-500 text-white shadow-md shadow-indigo-500/20'
+            } disabled:opacity-50`}
+          >
+            {isScoreLoading ? (
+              <>
+                <div className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                <span>Scoring AI...</span>
+              </>
+            ) : hasAI ? (
+              <>
+                <RotateCw className="w-3 h-3" />
+                <span>Regenerate Score</span>
+              </>
+            ) : (
+              <>
+                <Zap className="w-3 h-3" />
+                <span>Generate AI Score</span>
+              </>
+            )}
+          </button>
+
+          <div className="flex items-center gap-1.5 mt-2">
             {hasAI && stock.engine && (
               <span className={`text-[9px] font-bold uppercase px-2 py-0.5 rounded border ${stock.engine.includes('Gemini') ? 'bg-indigo-500/20 text-indigo-300 border-indigo-500/30' : 'bg-slate-800 text-slate-300 border-slate-700'}`}>
                 {stock.engine}
               </span>
             )}
-            <span className="text-[11px] text-slate-400 leading-snug">
-              {hasAI ? 'Includes Future Potential (20%) & Governance (20%).' : 'Awaiting LLM multi-pillar synthesis.'}
+            <span className="text-[10px] text-slate-400 leading-snug">
+              {hasAI ? 'Includes Future Potential (20%) & Governance (20%).' : 'Awaiting multi-pillar AI synthesis.'}
             </span>
           </div>
         </div>

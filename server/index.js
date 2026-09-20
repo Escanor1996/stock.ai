@@ -2,7 +2,7 @@ import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
 import { getStockData, getHistoricalPrices, searchStocks } from './services/stockService.js';
-import { generateAIAnalysis } from './services/aiService.js';
+import { generateAIScore, generateAIVerdict, generateAIAnalysis } from './services/aiService.js';
 
 const app = express();
 const port = process.env.PORT || 3001;
@@ -50,6 +50,32 @@ app.get('/api/stock/:ticker/analysis', async (req, res) => {
   } catch (err) {
     console.error(`Error generating AI analysis for ${ticker}:`, err);
     res.status(500).json({ error: 'Failed to generate AI analysis' });
+  }
+});
+
+// ── GET /api/stock/:ticker/score — Decoupled AI 360° Score
+app.get('/api/stock/:ticker/score', async (req, res) => {
+  const { ticker } = req.params;
+  const force = req.query.refresh === 'true' || req.query.force === 'true';
+  try {
+    const data = await generateAIScore(ticker, force);
+    res.json(data);
+  } catch (err) {
+    console.error(`Error generating AI score for ${ticker}:`, err);
+    res.status(500).json({ error: 'Failed to generate AI score' });
+  }
+});
+
+// ── GET /api/stock/:ticker/verdict — Decoupled Fin-LLM 360° Verdict
+app.get('/api/stock/:ticker/verdict', async (req, res) => {
+  const { ticker } = req.params;
+  const force = req.query.refresh === 'true' || req.query.force === 'true';
+  try {
+    const data = await generateAIVerdict(ticker, force);
+    res.json(data);
+  } catch (err) {
+    console.error(`Error generating AI verdict for ${ticker}:`, err);
+    res.status(500).json({ error: 'Failed to generate AI verdict' });
   }
 });
 

@@ -17,7 +17,7 @@ import {
   ExternalLink,
   ChevronRight
 } from 'lucide-react';
-import { fetchStockData, fetchAIAnalysis } from './utils/api';
+import { fetchStockData, fetchAIScore, fetchAIVerdict } from './utils/api';
 import ScoreGauge from './components/ScoreGauge';
 import StockChart from './components/StockChart';
 import QuarterlyAnalysis from './components/QuarterlyAnalysis';
@@ -40,7 +40,8 @@ export default function App() {
   const [isSearchModalOpen, setIsSearchModalOpen] = useState(false);
   const [currentStock, setCurrentStock] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [isAILoading, setIsAILoading] = useState(false);
+  const [isScoreLoading, setIsScoreLoading] = useState(false);
+  const [isVerdictLoading, setIsVerdictLoading] = useState(false);
 
   // Load saved watchlist
   useEffect(() => {
@@ -86,14 +87,11 @@ export default function App() {
     let active = true;
     const loadStock = async () => {
       setIsLoading(true);
-      setIsAILoading(true);
+      setIsScoreLoading(false);
+      setIsVerdictLoading(false);
       try {
         const data = await fetchStockData(currentSymbol);
         if (active) setCurrentStock(data);
-        // We don't fetch AI analysis automatically anymore
-        // The user must click the button to trigger it.
-        if (active) setIsAILoading(false);
-
       } catch (err) {
         console.error(err);
       } finally {
@@ -104,38 +102,49 @@ export default function App() {
     return () => { active = false; };
   }, [currentSymbol]);
 
-  const handleGenerateAI = async () => {
-    setIsAILoading(true);
+  const handleGenerateAIScore = async () => {
+    setIsScoreLoading(true);
     try {
-      const aiData = await fetchAIAnalysis(currentSymbol, true);
+      const scoreData = await fetchAIScore(currentSymbol, true);
       setCurrentStock(prev => ({
         ...prev,
         hasAIAnalysis: true,
-        aiScore: aiData.score,
-        aiCategory: aiData.score >= 80 ? 'Exceptional' : aiData.score >= 60 ? 'Strong' : 'Needs Attention',
-        score: aiData.score,
-        scoreCategory: aiData.score >= 80 ? 'Exceptional' : aiData.score >= 60 ? 'Strong' : 'Needs Attention',
-        aiVerdict: aiData.verdict,
-        bullPoints: aiData.bullPoints || [],
-        bearPoints: aiData.bearPoints || [],
-        futurePoints: aiData.futurePoints || [],
-        parameterScores: aiData.parameterScores || {},
-        governanceNotes: aiData.governanceNotes || '',
-        engine: aiData.engine,
-        radarScores: aiData.parameterScores ? [
-          { category: 'Capital Efficiency', score: aiData.parameterScores.capitalEfficiency ?? 50 },
-          { category: 'Growth Momentum', score: aiData.parameterScores.growth ?? 50 },
-          { category: 'Solvency & Health', score: aiData.parameterScores.solvency ?? 50 },
-          { category: 'Valuation Safety', score: aiData.parameterScores.valuation ?? 50 },
-          { category: 'Corp Governance', score: aiData.parameterScores.corporateGovernance ?? 75 },
-          { category: 'Future Potential', score: aiData.parameterScores.futurePotential ?? 75 },
-        ] : prev.radarScores
+        aiScore: scoreData.score,
+        aiCategory: scoreData.score >= 80 ? 'Exceptional' : scoreData.score >= 60 ? 'Strong' : 'Needs Attention',
+        score: scoreData.score,
+        scoreCategory: scoreData.score >= 80 ? 'Exceptional' : scoreData.score >= 60 ? 'Strong' : 'Needs Attention',
+        parameterScores: scoreData.parameterScores || prev.parameterScores || {},
+        scoreEngine: scoreData.engine,
+        engine: scoreData.engine || prev.engine,
       }));
     } catch (err) {
-      console.error("AI fetch failed:", err);
-      alert("Failed to generate AI analysis. Please try again.");
+      console.error("AI score fetch failed:", err);
+      alert("Failed to calculate AI Score. Please try again.");
     } finally {
-      setIsAILoading(false);
+      setIsScoreLoading(false);
+    }
+  };
+
+  const handleGenerateAIVerdict = async () => {
+    setIsVerdictLoading(true);
+    try {
+      const verdictData = await fetchAIVerdict(currentSymbol, true);
+      setCurrentStock(prev => ({
+        ...prev,
+        hasAIVerdict: true,
+        aiVerdict: verdictData.verdict,
+        bullPoints: verdictData.bullPoints || [],
+        bearPoints: verdictData.bearPoints || [],
+        futurePoints: verdictData.futurePoints || [],
+        governanceNotes: verdictData.governanceNotes || '',
+        verdictEngine: verdictData.engine,
+        engine: verdictData.engine || prev.engine,
+      }));
+    } catch (err) {
+      console.error("AI verdict fetch failed:", err);
+      alert("Failed to generate AI Verdict. Please try again.");
+    } finally {
+      setIsVerdictLoading(false);
     }
   };
 
@@ -339,8 +348,8 @@ export default function App() {
             {/* 360° Score Matrix Dual Engine Card */}
             <ScoreGauge
               stock={currentStock}
-              onTriggerAI={handleGenerateAI}
-              isAILoading={isAILoading}
+              onTriggerScore={handleGenerateAIScore}
+              isScoreLoading={isScoreLoading}
             />
 
             {/* AI Verdict & Drivers Card */}
@@ -356,23 +365,23 @@ export default function App() {
                   )}
                 </div>
                 <button
-                  onClick={handleGenerateAI}
-                  disabled={isAILoading}
+                  onClick={handleGenerateAIVerdict}
+                  disabled={isVerdictLoading}
                   className="px-4 py-2 bg-gradient-to-r from-emerald-600 to-blue-600 hover:from-emerald-500 hover:to-blue-500 disabled:opacity-50 text-slate-100 text-xs font-bold rounded-xl flex items-center gap-2 transition-all shadow-md shadow-emerald-500/20"
                 >
-                  {isAILoading ? (
-                    <><div className="w-4 h-4 border-2 border-slate-100 border-t-transparent rounded-full animate-spin"></div> Analyzing...</>
-                  ) : currentStock.hasAIAnalysis ? (
-                    <><RotateCw className="w-4 h-4" /> Regenerate AI Analysis</>
+                  {isVerdictLoading ? (
+                    <><div className="w-4 h-4 border-2 border-slate-100 border-t-transparent rounded-full animate-spin"></div> Synthesizing Verdict...</>
+                  ) : currentStock.aiVerdict ? (
+                    <><RotateCw className="w-4 h-4" /> Regenerate Verdict</>
                   ) : (
-                    <><Zap className="w-4 h-4" /> Generate AI Analysis</>
+                    <><Zap className="w-4 h-4" /> Generate AI Verdict</>
                   )}
                 </button>
               </div>
               <p className="text-xs sm:text-sm text-slate-300 leading-relaxed bg-zinc-900/60 p-4 rounded-xl border border-zinc-800/80">
                 {currentStock.aiVerdict || (
                   <span className="text-slate-400 italic">
-                    No AI analysis generated yet for this stock. Click "Generate AI Analysis" above to generate a 360° verdict and fundamental catalysts.
+                    No AI verdict generated yet for this stock. Click "Generate AI Verdict" above to synthesize a qualitative thesis, governance notes & catalysts.
                   </span>
                 )}
               </p>

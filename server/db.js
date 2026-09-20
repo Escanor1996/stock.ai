@@ -196,6 +196,29 @@ const stmts = {
       updated_at       = @updated_at
   `),
 
+  upsertAIScore: db.prepare(`
+    INSERT INTO ai_analysis (ticker, score, parameter_scores, engine, updated_at)
+    VALUES (@ticker, @score, @parameter_scores, @engine, @updated_at)
+    ON CONFLICT(ticker) DO UPDATE SET
+      score            = @score,
+      parameter_scores = @parameter_scores,
+      engine           = @engine,
+      updated_at       = @updated_at
+  `),
+
+  upsertAIVerdict: db.prepare(`
+    INSERT INTO ai_analysis (ticker, verdict, bull_points, bear_points, future_points, governance_notes, engine, updated_at)
+    VALUES (@ticker, @verdict, @bull_points, @bear_points, @future_points, @governance_notes, @engine, @updated_at)
+    ON CONFLICT(ticker) DO UPDATE SET
+      verdict          = @verdict,
+      bull_points      = @bull_points,
+      bear_points      = @bear_points,
+      future_points    = @future_points,
+      governance_notes = @governance_notes,
+      engine           = @engine,
+      updated_at       = @updated_at
+  `),
+
   getAIAnalysis: db.prepare('SELECT * FROM ai_analysis WHERE ticker = ?'),
 };
 
@@ -238,6 +261,29 @@ export function upsertAIAnalysis(data) {
     bear_points: JSON.stringify(data.bearPoints || []),
     future_points: JSON.stringify(data.futurePoints || []),
     parameter_scores: JSON.stringify(data.parameterScores || {}),
+    governance_notes: data.governanceNotes || '',
+    engine: data.engine || 'stock.ai Algorithm',
+    updated_at: data.updated_at || Date.now(),
+  });
+}
+
+export function upsertAIScore(data) {
+  return stmts.upsertAIScore.run({
+    ticker: data.ticker,
+    score: data.score,
+    parameter_scores: JSON.stringify(data.parameterScores || {}),
+    engine: data.engine || 'stock.ai Algorithm',
+    updated_at: data.updated_at || Date.now(),
+  });
+}
+
+export function upsertAIVerdict(data) {
+  return stmts.upsertAIVerdict.run({
+    ticker: data.ticker,
+    verdict: data.verdict,
+    bull_points: JSON.stringify(data.bullPoints || []),
+    bear_points: JSON.stringify(data.bearPoints || []),
+    future_points: JSON.stringify(data.futurePoints || []),
     governance_notes: data.governanceNotes || '',
     engine: data.engine || 'stock.ai Algorithm',
     updated_at: data.updated_at || Date.now(),

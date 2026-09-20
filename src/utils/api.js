@@ -24,6 +24,20 @@ export async function fetchHistorical(ticker, range = '1y') {
   return response.json();
 }
 
+export async function fetchAIScore(ticker, force = true) {
+  const t = ticker.toUpperCase();
+  const response = await fetch(`/api/stock/${encodeURIComponent(t)}/score?refresh=${force}`);
+  if (!response.ok) throw new Error('AI score generation failed');
+  return response.json();
+}
+
+export async function fetchAIVerdict(ticker, force = true) {
+  const t = ticker.toUpperCase();
+  const response = await fetch(`/api/stock/${encodeURIComponent(t)}/verdict?refresh=${force}`);
+  if (!response.ok) throw new Error('AI verdict generation failed');
+  return response.json();
+}
+
 export async function fetchAIAnalysis(ticker, force = true) {
   const t = ticker.toUpperCase();
   const response = await fetch(`/api/stock/${encodeURIComponent(t)}/analysis?refresh=${force}`);
