@@ -8,17 +8,14 @@ import {
   ArrowDownRight,
   BarChart2,
   Sparkles,
-  RotateCw,
-  Zap,
   ExternalLink
 } from 'lucide-react';
-import { fetchStockData, fetchAIAnalysis } from '../utils/api';
+import { fetchStockData } from '../utils/api';
 
 export default function Watchlist({ watchlist, onRemoveFromWatchlist, onAddToWatchlist, onSelectStock }) {
   const [customTickerInput, setCustomTickerInput] = useState('');
   const [stocksData, setStocksData] = useState({});
   const [loading, setLoading] = useState(true);
-  const [generatingSymbol, setGeneratingSymbol] = useState(null);
 
   useEffect(() => {
     let active = true;
@@ -52,41 +49,6 @@ export default function Watchlist({ watchlist, onRemoveFromWatchlist, onAddToWat
     if (!customTickerInput.trim()) return;
     onAddToWatchlist(customTickerInput.trim().toUpperCase());
     setCustomTickerInput('');
-  };
-
-  const handleGenerateAIForStock = async (e, symbol) => {
-    e.stopPropagation();
-    setGeneratingSymbol(symbol);
-    try {
-      const aiData = await fetchAIAnalysis(symbol, true);
-      setStocksData((prev) => {
-        const current = prev[symbol];
-        if (!current) return prev;
-        return {
-          ...prev,
-          [symbol]: {
-            ...current,
-            hasAIAnalysis: true,
-            aiScore: aiData.score,
-            aiCategory: aiData.score >= 80 ? 'Exceptional' : aiData.score >= 60 ? 'Strong' : 'Needs Attention',
-            score: aiData.score,
-            scoreCategory: aiData.score >= 80 ? 'Exceptional' : aiData.score >= 60 ? 'Strong' : 'Needs Attention',
-            aiVerdict: aiData.verdict,
-            bullPoints: aiData.bullPoints || [],
-            bearPoints: aiData.bearPoints || [],
-            futurePoints: aiData.futurePoints || [],
-            parameterScores: aiData.parameterScores || {},
-            governanceNotes: aiData.governanceNotes || '',
-            engine: aiData.engine,
-          },
-        };
-      });
-    } catch (err) {
-      console.error(`Failed to generate AI for ${symbol}:`, err);
-      alert(`Could not generate AI analysis for ${symbol}. Please try again.`);
-    } finally {
-      setGeneratingSymbol(null);
-    }
   };
 
   return (
@@ -216,56 +178,27 @@ export default function Watchlist({ watchlist, onRemoveFromWatchlist, onAddToWat
                     </div>
                   </div>
 
-                  {/* AI 360° Score with Inline Generate / Re-run */}
+                  {/* AI 360° Qualitative Score */}
                   <div className="p-2.5 rounded-xl bg-zinc-900/80 border border-zinc-800 flex flex-col justify-between">
                     <div className="flex items-center justify-between text-[10px] text-indigo-300 font-semibold uppercase tracking-wider mb-1">
                       <span className="flex items-center gap-1">
                         <Sparkles className="w-3 h-3 text-indigo-400" /> AI 360°
                       </span>
-                      {stock.hasAIAnalysis && (
-                        <span className="text-[9px] text-indigo-400 font-mono font-bold">
-                          {stock.aiCategory || 'AI'}
-                        </span>
-                      )}
+                      <span className="text-zinc-500 font-mono text-[9px]">
+                        {stock.hasAIAnalysis ? (stock.aiCategory || 'AI') : 'Pending'}
+                      </span>
                     </div>
-
-                    <div className="flex items-center justify-between mt-0.5">
+                    <div className="flex items-baseline justify-between">
                       {stock.hasAIAnalysis ? (
-                        <div className="flex items-baseline gap-0.5">
+                        <>
                           <span className="text-base font-black text-indigo-300 font-mono">
                             {stock.aiScore}
                           </span>
                           <span className="text-[9px] text-zinc-500 font-mono">/ 100</span>
-                        </div>
+                        </>
                       ) : (
-                        <span className="text-[10px] text-zinc-500 italic">Not run</span>
+                        <span className="text-xs text-zinc-500 font-medium italic">Pending</span>
                       )}
-
-                      {/* Inline Generate / Re-run Action Button */}
-                      <button
-                        onClick={(e) => handleGenerateAIForStock(e, stock.symbol)}
-                        disabled={generatingSymbol === stock.symbol}
-                        title={stock.hasAIAnalysis ? "Regenerate AI Analysis" : "Generate AI Analysis"}
-                        className={`px-2 py-1 rounded-lg text-[10px] font-bold flex items-center gap-1 transition-all ${
-                          stock.hasAIAnalysis
-                            ? 'bg-zinc-800 hover:bg-zinc-700 text-zinc-300 border border-zinc-700 hover:text-white'
-                            : 'bg-gradient-to-r from-emerald-600 to-indigo-600 hover:from-emerald-500 hover:to-indigo-500 text-white shadow-sm shadow-indigo-500/20'
-                        } disabled:opacity-50`}
-                      >
-                        {generatingSymbol === stock.symbol ? (
-                          <div className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                        ) : stock.hasAIAnalysis ? (
-                          <>
-                            <RotateCw className="w-2.5 h-2.5" />
-                            <span>Re-run</span>
-                          </>
-                        ) : (
-                          <>
-                            <Zap className="w-2.5 h-2.5" />
-                            <span>Generate</span>
-                          </>
-                        )}
-                      </button>
                     </div>
                   </div>
                 </div>

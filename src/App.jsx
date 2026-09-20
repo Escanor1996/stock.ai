@@ -8,7 +8,6 @@ import {
   BarChart3,
   MessageSquareText,
   Sparkles,
-  Layers,
   Building2,
   Zap,
   RotateCw,
@@ -22,7 +21,6 @@ import { fetchStockData, fetchAIAnalysis } from './utils/api';
 import ScoreGauge from './components/ScoreGauge';
 import StockChart from './components/StockChart';
 import QuarterlyAnalysis from './components/QuarterlyAnalysis';
-import PeerComparison from './components/PeerComparison';
 import Watchlist from './components/Watchlist';
 import SearchModal from './components/SearchModal';
 
@@ -37,7 +35,7 @@ class ErrorBoundary extends React.Component {
 
 export default function App() {
   const [currentSymbol, setCurrentSymbol] = useState('E2E');
-  const [activeTab, setActiveTab] = useState('watchlist'); // 'analysis', 'watchlist', 'peers', 'governance'
+  const [activeTab, setActiveTab] = useState('watchlist'); // 'analysis', 'watchlist'
   const [watchlist, setWatchlist] = useState(['E2E', 'TMCV', 'TATAMOTORS', 'INFY', 'ZOMATO', 'NETWEB', 'NVDA']);
   const [isSearchModalOpen, setIsSearchModalOpen] = useState(false);
   const [currentStock, setCurrentStock] = useState(null);
@@ -229,16 +227,6 @@ export default function App() {
               <Star className="w-4 h-4" /> Watchlist ({watchlist.length})
             </button>
 
-            <button
-              onClick={() => setActiveTab('peers')}
-              className={`px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-2 transition-all ${
-                activeTab === 'peers'
-                  ? 'bg-emerald-500 text-slate-950 shadow-md shadow-emerald-500/20'
-                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900/60'
-              }`}
-            >
-              <Layers className="w-4 h-4" /> Peer Comparison
-            </button>
           </div>
 
           <div className="hidden md:flex items-center gap-2 text-xs text-slate-400">
@@ -262,8 +250,6 @@ export default function App() {
             onAddToWatchlist={handleAddToWatchlist}
             onSelectStock={handleSelectStock}
           />
-        ) : activeTab === 'peers' ? (
-          <PeerComparison peers={currentStock.peers} currentSymbol={currentStock.symbol} />
         ) : (
           <ErrorBoundary>
           {/* Main 360° Deep Dive Analysis View */}
@@ -462,8 +448,6 @@ export default function App() {
 
 
 
-            {/* Peer Comparison Matrix */}
-            <PeerComparison peers={currentStock.peers} currentSymbol={currentStock.symbol} />
           </div>
           </ErrorBoundary>
         )}
