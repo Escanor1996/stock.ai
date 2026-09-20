@@ -5,3 +5,5 @@ dist/
 .env
 .env.*
 *.log
+SESSION_NOTES.md
+SESSION_STATE.md
