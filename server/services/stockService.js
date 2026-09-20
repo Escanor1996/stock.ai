@@ -112,6 +112,7 @@ function assembleResponse(ticker) {
   const fund = db.getFundamentals(ticker) || {};
   const quarters = db.getQuarterlies(ticker);
   const aiAnalysis = db.getAIAnalysis(ticker);
+  const staticScoreResult = calculateStaticScore(quote, fund, quarters);
   return {
     // Identity
     symbol: stock.ticker,
@@ -151,6 +152,9 @@ function assembleResponse(ticker) {
     lastUpdated: quote.updated_at || stock.updated_at,
     // Saved AI Analysis (persisted)
     aiAnalysis,
+    // Deterministic Static Financial Score
+    staticScore: staticScoreResult.score,
+    staticBreakdown: staticScoreResult.breakdown,
   };
 }
 
@@ -246,4 +250,105 @@ export async function searchStocks(query) {
 function round(v) {
   if (v == null || isNaN(v)) return null;
   return Math.round(v * 100) / 100;
+}
+
+export function calculateStaticScore(quote = {}, fund = {}, quarters = []) {
+  // 1. Capital Efficiency & Profitability (25%)
+  let roeScore = 50;
+  if (fund.roe != null) {
+    if (fund.roe >= 25) roeScore = 100;
+    else if (fund.roe >= 15) roeScore = 70 + ((fund.roe - 15) / 10) * 30;
+    else if (fund.roe >= 5) roeScore = 40 + ((fund.roe - 5) / 10) * 30;
+    else if (fund.roe >= 0) roeScore = 25 + (fund.roe / 5) * 15;
+    else roeScore = 10;
+  }
+
+  let roceScore = 50;
+  if (fund.roce != null) {
+    if (fund.roce >= 25) roceScore = 100;
+    else if (fund.roce >= 15) roceScore = 70 + ((fund.roce - 15) / 10) * 30;
+    else if (fund.roce >= 5) roceScore = 40 + ((fund.roce - 5) / 10) * 30;
+    else roceScore = 20;
+  }
+
+  const capitalEfficiency = Math.round(roeScore * 0.6 + roceScore * 0.4);
+
+  // 2. Growth Momentum (25%)
+  let growthScore = 50;
+  if (quarters && quarters.length > 0) {
+    const recent = quarters.slice(-4);
+    const validRevGrowth = recent.map(q => q.rev_growth_yoy).filter(g => g != null);
+    const validPatGrowth = recent.map(q => q.pat_growth_yoy).filter(g => g != null);
+
+    const avgRev = validRevGrowth.length ? validRevGrowth.reduce((a, b) => a + b, 0) / validRevGrowth.length : 0;
+    const avgPat = validPatGrowth.length ? validPatGrowth.reduce((a, b) => a + b, 0) / validPatGrowth.length : 0;
+
+    let revPts = 50;
+    if (avgRev >= 25) revPts = 100;
+    else if (avgRev >= 15) revPts = 80;
+    else if (avgRev >= 5) revPts = 60;
+    else if (avgRev >= 0) revPts = 40;
+    else revPts = 15;
+
+    let patPts = 50;
+    if (avgPat >= 25) patPts = 100;
+    else if (avgPat >= 10) patPts = 75;
+    else if (avgPat >= 0) patPts = 50;
+    else patPts = 20;
+
+    growthScore = Math.round(revPts * 0.6 + patPts * 0.4);
+  }
+
+  // 3. Solvency & Balance Sheet Health (20%)
+  let solvency = 60;
+  if (fund.debt_to_equity != null) {
+    const de = fund.debt_to_equity;
+    if (de <= 0.1) solvency = 100;
+    else if (de <= 0.5) solvency = 85;
+    else if (de <= 1.0) solvency = 65;
+    else if (de <= 1.5) solvency = 45;
+    else solvency = 20;
+  }
+
+  // 4. Valuation & Margin of Safety (20%)
+  let valuation = 50;
+  if (fund.pe_ratio != null && fund.pe_ratio > 0) {
+    const pe = fund.pe_ratio;
+    if (pe < 15) valuation = 95;
+    else if (pe <= 25) valuation = 80;
+    else if (pe <= 45) valuation = 60;
+    else if (pe <= 75) valuation = 35;
+    else valuation = 20;
+  } else if (fund.pe_ratio != null && fund.pe_ratio < 0) {
+    valuation = 15; // loss making
+  }
+
+  // 5. Price Health & Momentum (10%)
+  let priceHealth = 50;
+  if (quote.price && fund.high_52w && fund.low_52w && fund.high_52w > fund.low_52w) {
+    const range = fund.high_52w - fund.low_52w;
+    const pos = (quote.price - fund.low_52w) / range;
+    priceHealth = Math.round(Math.max(10, Math.min(100, pos * 100)));
+  }
+
+  const weighted = Math.round(
+    capitalEfficiency * 0.25 +
+    growthScore * 0.25 +
+    solvency * 0.20 +
+    valuation * 0.20 +
+    priceHealth * 0.10
+  );
+
+  const totalScore = Math.max(10, Math.min(99, weighted));
+
+  return {
+    score: totalScore,
+    breakdown: {
+      capitalEfficiency,
+      growth: growthScore,
+      solvency,
+      valuation,
+      priceHealth
+    }
+  };
 }
