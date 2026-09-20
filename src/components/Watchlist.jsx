@@ -132,21 +132,21 @@ export default function Watchlist({ watchlist, onRemoveFromWatchlist, onAddToWat
           </p>
         </div>
 
-        {/* Quick Add Form */}
-        <form onSubmit={handleAddSubmit} className="flex items-center gap-2">
-          <div className="relative flex-1 sm:w-64">
-            <Search className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
+        {/* Quick Add Form — properly aligned and proportioned */}
+        <form onSubmit={handleAddSubmit} className="flex items-center gap-2 w-full md:w-auto">
+          <div className="relative flex-1 sm:w-80">
+            <Search className="w-4 h-4 text-emerald-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
             <input
               type="text"
-              placeholder="Add ticker (e.g. TMCV, E2E, INFY)..."
+              placeholder="Add ticker to watchlist (e.g. TMCV, E2E, INFY)..."
               value={customTickerInput}
               onChange={(e) => setCustomTickerInput(e.target.value)}
-              className="w-full pl-9 pr-3 py-2 text-xs bg-black border border-zinc-800 rounded-xl text-slate-100 placeholder-slate-500 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 font-mono"
+              className="w-full pl-10 pr-3.5 py-2 text-xs bg-zinc-900/90 border border-zinc-800 rounded-xl text-slate-100 placeholder-zinc-500 focus:outline-none focus:border-emerald-500/80 focus:ring-1 focus:ring-emerald-500 font-mono shadow-inner"
             />
           </div>
           <button
             type="submit"
-            className="px-4 py-2 bg-emerald-500/20 hover:bg-emerald-500/40 border border-emerald-500/50 text-emerald-400 text-xs font-bold font-mono uppercase rounded-xl flex items-center gap-1.5 transition-all shadow-[0_0_15px_rgba(16,185,129,0.15)]"
+            className="px-4 py-2 bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-bold font-mono uppercase rounded-xl flex items-center gap-1.5 transition-all shadow-md shadow-emerald-500/20 shrink-0 cursor-pointer"
           >
             <Plus className="w-4 h-4" /> Add
           </button>

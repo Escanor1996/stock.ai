@@ -157,15 +157,15 @@ export default function App() {
   return (
     <div className="min-h-screen bg-black text-slate-100 flex flex-col selection:bg-emerald-500 selection:text-white">
       {/* Global Navbar */}
-      <header className="sticky top-0 z-40 bg-zinc-950/90 backdrop-blur-md border-b border-slate-800/80 px-4 lg:px-8 py-3 flex items-center justify-between">
+      <header className="sticky top-0 z-40 bg-zinc-950/95 backdrop-blur-md border-b border-zinc-800/80 px-4 lg:px-8 py-2.5 flex items-center justify-between gap-4">
         {/* Brand Logo */}
-        <div className="flex items-center gap-3 cursor-pointer" onClick={() => setActiveTab('watchlist')}>
+        <div className="flex items-center gap-3 cursor-pointer shrink-0" onClick={() => setActiveTab('watchlist')}>
           <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-emerald-500 to-blue-600 flex items-center justify-center text-slate-950 font-black shadow-lg shadow-emerald-500/25">
             <Zap className="w-6 h-6 fill-slate-950" />
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <span className="text-lg font-black tracking-tight bg-gradient-to-r from-white via-slate-100 to-emerald-300 bg-clip-text text-transparent">
+              <span className="text-lg font-black tracking-tight bg-gradient-to-r from-white via-slate-100 to-emerald-300 bg-clip-text text-transparent font-mono">
                 stock<span className="text-emerald-400">.ai</span>
               </span>
               <span className="text-[10px] font-extrabold uppercase px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 tracking-wider">
@@ -176,33 +176,35 @@ export default function App() {
           </div>
         </div>
 
-        {/* Global Search Trigger Bar */}
-        <button
-          onClick={() => setIsSearchModalOpen(true)}
-          className="flex items-center justify-between w-64 lg:w-96 px-3.5 py-2 text-xs bg-slate-900/90 border border-slate-800 hover:border-emerald-500/50 rounded-xl text-slate-400 transition-all shadow-inner group"
-        >
-          <div className="flex items-center gap-2">
-            <Search className="w-4 h-4 text-emerald-400 group-hover:text-emerald-300" />
-            <span className="truncate">Search TMCV, E2E, Infosys, Zomato, Reliance...</span>
-          </div>
-          <kbd className="hidden sm:inline-block text-[10px] font-mono uppercase bg-slate-800 text-slate-400 px-2 py-0.5 rounded border border-slate-700">
-            Ctrl + K
-          </kbd>
-        </button>
+        {/* Global Search Center Bar — utilizes full center space properly */}
+        <div className="flex-1 max-w-2xl mx-2 md:mx-6">
+          <button
+            onClick={() => setIsSearchModalOpen(true)}
+            className="w-full flex items-center justify-between px-3.5 py-2 text-xs bg-zinc-900/90 hover:bg-zinc-900 border border-zinc-800 hover:border-emerald-500/50 rounded-xl text-slate-300 transition-all shadow-inner group cursor-pointer"
+          >
+            <div className="flex items-center gap-2.5 truncate">
+              <Search className="w-4 h-4 text-emerald-400 group-hover:text-emerald-300 shrink-0" />
+              <span className="text-zinc-400 font-medium truncate">Search stocks or tickers (e.g. TMCV, E2E, INFY, Reliance, Zomato)...</span>
+            </div>
+            <kbd className="hidden sm:inline-block text-[10px] font-mono font-bold uppercase bg-zinc-800 text-zinc-400 px-2 py-0.5 rounded border border-zinc-700 shrink-0 ml-2">
+              Ctrl + K
+            </kbd>
+          </button>
+        </div>
 
         {/* Right Watchlist Quick Counter */}
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 shrink-0">
           <button
             onClick={() => setActiveTab('watchlist')}
-            className={`px-3.5 py-1.5 rounded-xl text-xs font-bold flex items-center gap-2 border transition-all ${
+            className={`px-3.5 py-2 rounded-xl text-xs font-bold flex items-center gap-2 border transition-all ${
               activeTab === 'watchlist'
-                ? 'bg-amber-500/20 text-amber-300 border-amber-500/40 shadow-md shadow-amber-500/10'
-                : 'bg-slate-900 text-slate-300 border-slate-800 hover:border-slate-700'
+                ? 'bg-emerald-500 text-slate-950 border-emerald-500 shadow-md shadow-emerald-500/20'
+                : 'bg-zinc-900 text-zinc-300 border-zinc-800 hover:border-zinc-700 hover:text-white'
             }`}
           >
             <Star className="w-4 h-4 text-amber-400 fill-amber-400" />
             <span className="hidden sm:inline">Watchlist</span>
-            <span className="px-1.5 py-0.2 rounded-full bg-slate-800 text-[10px] text-amber-300 font-mono">
+            <span className="px-1.5 py-0.2 rounded-full bg-black/40 text-[10px] font-mono font-bold">
               {watchlist.length}
             </span>
           </button>
@@ -211,15 +213,15 @@ export default function App() {
 
       {/* Main Container */}
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 lg:px-8 py-6 space-y-6">
-        {/* Navigation Tabs Bar */}
-        <div className="flex items-center justify-between border-b border-slate-800/80 pb-2 overflow-x-auto no-scrollbar">
+        {/* Navigation Tabs Bar & Trending Tickers */}
+        <div className="flex items-center justify-between border-b border-zinc-800/80 pb-3 gap-4 overflow-x-auto no-scrollbar">
           <div className="flex items-center gap-2 min-w-max">
             <button
               onClick={() => setActiveTab('analysis')}
               className={`px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-2 transition-all ${
                 activeTab === 'analysis'
                   ? 'bg-emerald-500 text-slate-950 shadow-md shadow-emerald-500/20'
-                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900/60'
+                  : 'text-slate-400 hover:text-slate-200 hover:bg-zinc-900/60'
               }`}
             >
               <Activity className="w-4 h-4" /> 360° Deep Dive
@@ -230,22 +232,33 @@ export default function App() {
               className={`px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-2 transition-all ${
                 activeTab === 'watchlist'
                   ? 'bg-emerald-500 text-slate-950 shadow-md shadow-emerald-500/20'
-                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900/60'
+                  : 'text-slate-400 hover:text-slate-200 hover:bg-zinc-900/60'
               }`}
             >
               <Star className="w-4 h-4" /> Watchlist ({watchlist.length})
             </button>
-
           </div>
 
-          <div className="hidden md:flex items-center gap-2 text-xs text-slate-400">
-            <span>stock.ai URL:</span>
-            <code className="bg-slate-900 px-2.5 py-1 rounded border border-slate-800 text-emerald-400 font-mono">
-              stock.ai/company/{currentStock?.symbol || currentSymbol}
-            </code>
+          {/* Quick Trending Tickers Bar — utilizes horizontal space */}
+          <div className="hidden md:flex items-center gap-2 text-xs text-zinc-400 min-w-max">
+            <span className="text-[11px] font-semibold text-zinc-500 uppercase tracking-wider">Trending:</span>
+            <div className="flex items-center gap-1.5">
+              {popularTickers.slice(0, 6).map((sym) => (
+                <button
+                  key={sym}
+                  onClick={() => handleSelectStock(sym)}
+                  className={`px-2.5 py-1 rounded-lg font-mono text-[11px] font-bold border transition-all ${
+                    currentSymbol === sym && activeTab === 'analysis'
+                      ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40'
+                      : 'bg-zinc-900/80 hover:bg-zinc-800 text-zinc-400 border-zinc-800 hover:text-zinc-200'
+                  }`}
+                >
+                  {sym}
+                </button>
+              ))}
+            </div>
           </div>
         </div>
-
         {/* Tab Views */}
         {isLoading || !currentStock ? (
           <div className="flex flex-col items-center justify-center py-20 space-y-4">
