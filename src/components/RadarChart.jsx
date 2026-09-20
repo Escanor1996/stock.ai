@@ -31,7 +31,7 @@ export default function RadarChartComponent({ data }) {
             />
             <PolarRadiusAxis angle={30} domain={[0, 100]} stroke="rgba(255, 255, 255, 0.15)" tick={false} />
             <Radar
-              name="EquiSense Score"
+              name="stock.ai Score"
               dataKey="score"
               stroke="#06b6d4"
               fill="#06b6d4"

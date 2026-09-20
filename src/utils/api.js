@@ -129,8 +129,6 @@ function normalizeForUI(data) {
     // Computed score
     score: finalScore,
     scoreCategory: finalScoreCategory,
-    kavachScore: finalScore, // placeholder until real governance data
-    walkTheTalkScore: finalScore,
     // Radar scores from real data
     radarScores: buildRadarScores(data),
 
@@ -153,12 +151,6 @@ function normalizeForUI(data) {
     bullPoints: hasAI ? (data.aiAnalysis.bullPoints || []) : [],
     bearPoints: hasAI ? (data.aiAnalysis.bearPoints || []) : [],
 
-    concall: {
-      latestQuarter: data.quarterlyFinancials?.[data.quarterlyFinancials.length - 1]?.quarter || 'N/A',
-      sentimentScore: 'N/A',
-      keyHighlights: ['Concall intelligence requires earnings call transcript data.'],
-      guidanceHistory: [],
-    },
 
     peers: [],
 

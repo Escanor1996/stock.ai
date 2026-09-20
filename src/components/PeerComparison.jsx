@@ -10,7 +10,7 @@ export default function PeerComparison({ peers, currentSymbol }) {
         <Layers className="w-5 h-5 text-emerald-400" />
         <div>
           <h2 className="text-base font-bold text-slate-100 tracking-wide">Sector Peer Valuation & Growth Matrix</h2>
-          <p className="text-xs text-slate-400">Comparing financial multiples, return metrics, and EquiSense health ratings.</p>
+          <p className="text-xs text-slate-400">Comparing financial multiples, return metrics, and stock.ai health ratings.</p>
         </div>
       </div>
 

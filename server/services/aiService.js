@@ -138,6 +138,6 @@ function generateHeuristicAnalysis(stock, quote, fund, quarters) {
     verdict,
     bullPoints,
     bearPoints,
-    engine: 'EquiSense Algorithm'
+    engine: 'stock.ai Algorithm'
   };
 }

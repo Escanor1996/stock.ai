@@ -110,5 +110,5 @@ app.get('/api/scrape', async (req, res) => {
 });
 
 app.listen(port, () => {
-  console.log(`EquiSense backend running on http://localhost:${port}`);
+  console.log(`stock.ai backend running on http://localhost:${port}`);
 });

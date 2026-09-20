@@ -1,7 +1,7 @@
 import React from 'react';
 import { Award, ShieldCheck, Zap, TrendingUp } from 'lucide-react';
 
-export default function ScoreGauge({ score, category, kavachScore, walkTheTalkScore }) {
+export default function ScoreGauge({ score, category, stock }) {
   // Determine color theme based on 0-100 score
   const getScoreTheme = (val) => {
     if (val >= 80) {
@@ -55,7 +55,7 @@ export default function ScoreGauge({ score, category, kavachScore, walkTheTalkSc
       <div className="flex items-center justify-between z-10">
         <div className="flex items-center gap-2">
           <Award className="w-5 h-5 text-emerald-400" />
-          <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">EquiSense 360° Score</span>
+          <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">stock.ai 360° Score</span>
         </div>
         <span className={`text-xs px-3 py-1 rounded-full font-medium border ${theme.badge}`}>
           {category || theme.label}
@@ -99,34 +99,44 @@ export default function ScoreGauge({ score, category, kavachScore, walkTheTalkSc
           </div>
         </div>
 
-        {/* Side Sub-scores */}
+        {/* Side Fundamental Pillars */}
         <div className="flex flex-col gap-3 w-full md:w-auto">
-          {/* Kavach Governance Badge */}
-          <div className="flex items-center justify-between p-3 rounded-xl bg-slate-900/60 border border-slate-800/80 min-w-[200px]">
+          {/* Capital Efficiency (ROE & ROCE) */}
+          <div className="flex items-center justify-between p-3 rounded-xl bg-slate-900/60 border border-slate-800/80 min-w-[210px]">
             <div className="flex items-center gap-2.5">
-              <div className="p-1.5 rounded-lg bg-indigo-500/10 text-indigo-400">
+              <div className="p-1.5 rounded-lg bg-emerald-500/10 text-emerald-400">
+                <TrendingUp className="w-4 h-4" />
+              </div>
+              <div>
+                <div className="text-xs text-slate-400 font-medium">Capital Efficiency</div>
+                <div className="text-sm font-bold text-slate-100">
+                  {stock?.roe != null && stock.roe !== 'N/A' ? `ROE ${stock.roe}` : 'ROE N/A'}
+                  {stock?.roce != null && stock.roce !== 'N/A' && (
+                    <span className="text-xs font-normal text-slate-400 ml-1.5">· ROCE {stock.roce}</span>
+                  )}
+                </div>
+              </div>
+            </div>
+            <span className="text-xs font-semibold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">Active</span>
+          </div>
+
+          {/* Solvency & Valuation (D/E & P/E) */}
+          <div className="flex items-center justify-between p-3 rounded-xl bg-slate-900/60 border border-slate-800/80 min-w-[210px]">
+            <div className="flex items-center gap-2.5">
+              <div className="p-1.5 rounded-lg bg-blue-500/10 text-blue-400">
                 <ShieldCheck className="w-4 h-4" />
               </div>
               <div>
-                <div className="text-xs text-slate-400 font-medium">Kavach Governance</div>
-                <div className="text-sm font-bold text-slate-100">{kavachScore}/100</div>
+                <div className="text-xs text-slate-400 font-medium">Solvency & Valuation</div>
+                <div className="text-sm font-bold text-slate-100">
+                  {stock?.debtToEquity != null ? `D/E ${stock.debtToEquity}` : 'D/E N/A'}
+                  {stock?.peRatio ? (
+                    <span className="text-xs font-normal text-slate-400 ml-1.5">{`· P/E ${stock.peRatio}x`}</span>
+                  ) : null}
+                </div>
               </div>
             </div>
-            <span className="text-xs font-semibold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">Clean</span>
-          </div>
-
-          {/* Walk the Talk Credibility */}
-          <div className="flex items-center justify-between p-3 rounded-xl bg-slate-900/60 border border-slate-800/80 min-w-[200px]">
-            <div className="flex items-center gap-2.5">
-              <div className="p-1.5 rounded-lg bg-emerald-500/10 text-emerald-400">
-                <Zap className="w-4 h-4" />
-              </div>
-              <div>
-                <div className="text-xs text-slate-400 font-medium">Walk-The-Talk Score</div>
-                <div className="text-sm font-bold text-slate-100">{walkTheTalkScore}/100</div>
-              </div>
-            </div>
-            <span className="text-xs font-semibold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">Verified</span>
+            <span className="text-xs font-semibold text-blue-400 bg-blue-500/10 px-2 py-0.5 rounded border border-blue-500/20">Live</span>
           </div>
         </div>
       </div>

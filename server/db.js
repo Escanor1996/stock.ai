@@ -225,7 +225,7 @@ export function upsertAIAnalysis(data) {
     verdict: data.verdict,
     bull_points: JSON.stringify(data.bullPoints || []),
     bear_points: JSON.stringify(data.bearPoints || []),
-    engine: data.engine || 'EquiSense Algorithm',
+    engine: data.engine || 'stock.ai Algorithm',
     updated_at: data.updated_at || Date.now(),
   });
 }

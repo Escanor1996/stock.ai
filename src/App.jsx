@@ -22,7 +22,6 @@ import ScoreGauge from './components/ScoreGauge';
 import StockChart from './components/StockChart';
 import RadarChartComponent from './components/RadarChart';
 import QuarterlyAnalysis from './components/QuarterlyAnalysis';
-import ConcallIntelligence from './components/ConcallIntelligence';
 import PeerComparison from './components/PeerComparison';
 import Watchlist from './components/Watchlist';
 import SearchModal from './components/SearchModal';
@@ -47,7 +46,7 @@ export default function App() {
 
   // Load saved watchlist
   useEffect(() => {
-    const saved = localStorage.getItem('equisense_watchlist');
+    const saved = localStorage.getItem('stock_ai_watchlist') || localStorage.getItem('equisense_watchlist');
     if (saved) {
       try {
         setWatchlist(JSON.parse(saved));
@@ -59,7 +58,7 @@ export default function App() {
 
   const saveWatchlist = (newList) => {
     setWatchlist(newList);
-    localStorage.setItem('equisense_watchlist', JSON.stringify(newList));
+    localStorage.setItem('stock_ai_watchlist', JSON.stringify(newList));
   };
 
   const handleAddToWatchlist = (symbol) => {
@@ -142,14 +141,14 @@ export default function App() {
       {/* Global Navbar */}
       <header className="sticky top-0 z-40 bg-zinc-950/90 backdrop-blur-md border-b border-slate-800/80 px-4 lg:px-8 py-3 flex items-center justify-between">
         {/* Brand Logo */}
-        <div className="flex items-center gap-3 cursor-pointer" onClick={() => setActiveTab('analysis')}>
+        <div className="flex items-center gap-3 cursor-pointer" onClick={() => setActiveTab('watchlist')}>
           <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-emerald-500 to-blue-600 flex items-center justify-center text-slate-950 font-black shadow-lg shadow-emerald-500/25">
             <Zap className="w-6 h-6 fill-slate-950" />
           </div>
           <div>
             <div className="flex items-center gap-2">
               <span className="text-lg font-black tracking-tight bg-gradient-to-r from-white via-slate-100 to-emerald-300 bg-clip-text text-transparent">
-                EquiSense<span className="text-emerald-400">.ai</span>
+                stock<span className="text-emerald-400">.ai</span>
               </span>
               <span className="text-[10px] font-extrabold uppercase px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 tracking-wider">
                 360° AI
@@ -232,9 +231,9 @@ export default function App() {
           </div>
 
           <div className="hidden md:flex items-center gap-2 text-xs text-slate-400">
-            <span>EquiSense URL:</span>
+            <span>stock.ai URL:</span>
             <code className="bg-slate-900 px-2.5 py-1 rounded border border-slate-800 text-emerald-400 font-mono">
-              equisense.ai/company/{currentStock?.symbol || currentSymbol}
+              stock.ai/company/{currentStock?.symbol || currentSymbol}
             </code>
           </div>
         </div>
@@ -346,8 +345,7 @@ export default function App() {
               <ScoreGauge
                 score={currentStock.score}
                 category={currentStock.scoreCategory}
-                kavachScore={currentStock.kavachScore}
-                walkTheTalkScore={currentStock.walkTheTalkScore}
+                stock={currentStock}
               />
               <RadarChartComponent data={currentStock.radarScores} />
             </div>
@@ -357,7 +355,7 @@ export default function App() {
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-zinc-800 pb-3">
                 <div className="flex items-center gap-2">
                   <Sparkles className="w-5 h-5 text-emerald-400" />
-                  <h3 className="text-base font-bold text-slate-100">EquiSense Fin-LLM 360° Verdict</h3>
+                  <h3 className="text-base font-bold text-slate-100">stock.ai Fin-LLM 360° Verdict</h3>
                   {currentStock.engine && (
                     <span className={`text-[10px] uppercase font-bold px-2 py-0.5 rounded border ${currentStock.engine.includes('Gemini') ? 'bg-indigo-500/20 text-indigo-300 border-indigo-500/30' : 'bg-slate-800 text-slate-400 border-slate-700'}`}>
                       {currentStock.engine}
@@ -428,8 +426,6 @@ export default function App() {
             </div>
 
 
-            {/* Concall Intelligence Section */}
-            <ConcallIntelligence concall={currentStock.concall} walkTheTalkScore={currentStock.walkTheTalkScore} />
 
             {/* Peer Comparison Matrix */}
             <PeerComparison peers={currentStock.peers} currentSymbol={currentStock.symbol} />
@@ -448,7 +444,7 @@ export default function App() {
       {/* Global Footer */}
       <footer className="border-t border-slate-800/80 py-6 px-4 text-center text-xs text-slate-500 space-y-2">
         <p className="font-medium text-slate-400">
-          EquiSense.ai — 360° AI Equity Research & Forensic Intelligence Platform
+          stock.ai — 360° AI Equity Research & Financial Intelligence Platform
         </p>
         <p className="text-[11px] max-w-xl mx-auto">
           Disclaimer: Information provided for educational and analytical purposes only. Not SEBI registered investment advice.
