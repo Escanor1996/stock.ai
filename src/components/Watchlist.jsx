@@ -1,12 +1,24 @@
 import React, { useState, useEffect } from 'react';
-import { Star, Search, Plus, Trash2, ArrowUpRight, ArrowDownRight, ShieldCheck, Award, ExternalLink } from 'lucide-react';
-import { fetchStockData } from '../utils/api';
+import {
+  Star,
+  Search,
+  Plus,
+  Trash2,
+  ArrowUpRight,
+  ArrowDownRight,
+  BarChart2,
+  Sparkles,
+  RotateCw,
+  Zap,
+  ExternalLink
+} from 'lucide-react';
+import { fetchStockData, fetchAIAnalysis } from '../utils/api';
 
 export default function Watchlist({ watchlist, onRemoveFromWatchlist, onAddToWatchlist, onSelectStock }) {
-  const [searchQuery, setSearchQuery] = useState('');
   const [customTickerInput, setCustomTickerInput] = useState('');
   const [stocksData, setStocksData] = useState({});
   const [loading, setLoading] = useState(true);
+  const [generatingSymbol, setGeneratingSymbol] = useState(null);
 
   useEffect(() => {
     let active = true;
@@ -16,13 +28,17 @@ export default function Watchlist({ watchlist, onRemoveFromWatchlist, onAddToWat
       try {
         await Promise.all(
           watchlist.map(async (symbol) => {
-            const data = await fetchStockData(symbol);
-            dataMap[symbol] = data;
+            try {
+              const data = await fetchStockData(symbol);
+              dataMap[symbol] = data;
+            } catch (e) {
+              console.error(`Failed to load ${symbol}:`, e);
+            }
           })
         );
         if (active) setStocksData(dataMap);
       } catch (err) {
-        console.error(err);
+        console.error("Watchlist load error:", err);
       } finally {
         if (active) setLoading(false);
       }
@@ -38,17 +54,54 @@ export default function Watchlist({ watchlist, onRemoveFromWatchlist, onAddToWat
     setCustomTickerInput('');
   };
 
+  const handleGenerateAIForStock = async (e, symbol) => {
+    e.stopPropagation();
+    setGeneratingSymbol(symbol);
+    try {
+      const aiData = await fetchAIAnalysis(symbol, true);
+      setStocksData((prev) => {
+        const current = prev[symbol];
+        if (!current) return prev;
+        return {
+          ...prev,
+          [symbol]: {
+            ...current,
+            hasAIAnalysis: true,
+            aiScore: aiData.score,
+            aiCategory: aiData.score >= 80 ? 'Exceptional' : aiData.score >= 60 ? 'Strong' : 'Needs Attention',
+            score: aiData.score,
+            scoreCategory: aiData.score >= 80 ? 'Exceptional' : aiData.score >= 60 ? 'Strong' : 'Needs Attention',
+            aiVerdict: aiData.verdict,
+            bullPoints: aiData.bullPoints || [],
+            bearPoints: aiData.bearPoints || [],
+            futurePoints: aiData.futurePoints || [],
+            parameterScores: aiData.parameterScores || {},
+            governanceNotes: aiData.governanceNotes || '',
+            engine: aiData.engine,
+          },
+        };
+      });
+    } catch (err) {
+      console.error(`Failed to generate AI for ${symbol}:`, err);
+      alert(`Could not generate AI analysis for ${symbol}. Please try again.`);
+    } finally {
+      setGeneratingSymbol(null);
+    }
+  };
+
   return (
     <div className="space-y-6">
-      {/* Top Banner / Add Bar */}
+      {/* Top Banner / Quick Add Bar */}
       <div className="glass-panel rounded-2xl p-6 border border-zinc-800 bg-black flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <div className="flex items-center gap-2">
             <Star className="w-5 h-5 text-emerald-400 fill-emerald-400" />
-            <h2 className="text-lg font-bold text-slate-100 uppercase tracking-widest font-mono">My Watchlist</h2>
+            <h2 className="text-lg font-bold text-slate-100 uppercase tracking-widest font-mono">
+              My Watchlist
+            </h2>
           </div>
           <p className="text-xs text-slate-400 mt-1">
-            Track key 360° health scores, price movements, and governance red flags for your saved assets.
+            Track real-time price movements, deterministic static fundamentals, and AI 360° research across saved assets.
           </p>
         </div>
 
@@ -58,7 +111,7 @@ export default function Watchlist({ watchlist, onRemoveFromWatchlist, onAddToWat
             <Search className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
             <input
               type="text"
-              placeholder="Search ticker (e.g. E2E, NVDA, RELIANCE)..."
+              placeholder="Search ticker (e.g. TMCV, E2E, INFY)..."
               value={customTickerInput}
               onChange={(e) => setCustomTickerInput(e.target.value)}
               className="w-full pl-9 pr-3 py-2 text-xs bg-black border border-zinc-800 rounded-xl text-slate-100 placeholder-slate-500 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 font-mono"
@@ -76,23 +129,23 @@ export default function Watchlist({ watchlist, onRemoveFromWatchlist, onAddToWat
       {/* Watchlist Grid */}
       {watchlist.length === 0 ? (
         <div className="glass-panel rounded-2xl p-12 text-center border border-zinc-800 bg-black space-y-3">
-          <Star className="w-12 h-12 text-zinc-700 mx-auto" />
-          <h3 className="text-base font-bold text-slate-300">Your Watchlist is Currently Empty</h3>
-          <p className="text-xs text-slate-500 max-w-md mx-auto">
-            Search for any company symbol above (e.g., E2E Networks, Reliance, Netweb) to monitor 360° fundamentals.
+          <Star className="w-10 h-10 text-slate-600 mx-auto" />
+          <h3 className="text-base font-bold text-slate-300">Your Watchlist is Empty</h3>
+          <p className="text-xs text-slate-500 max-w-sm mx-auto">
+            Use the search bar above or the global search modal to add stocks to track.
           </p>
         </div>
       ) : loading ? (
-        <div className="flex flex-col items-center justify-center py-12">
-          <div className="w-8 h-8 border-4 border-emerald-500 border-t-transparent rounded-full animate-spin mb-4"></div>
-          <p className="text-xs text-slate-400">Scraping live data for watchlist...</p>
+        <div className="flex flex-col items-center justify-center py-16 space-y-3">
+          <div className="w-8 h-8 border-3 border-emerald-500 border-t-transparent rounded-full animate-spin"></div>
+          <span className="text-xs text-slate-400 font-mono">Loading watchlist data & scores...</span>
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {watchlist.map((symbol) => {
             const stock = stocksData[symbol];
             if (!stock) return null;
-            const isPositive = stock.change >= 0;
+            const isPositive = (stock.change ?? 0) >= 0;
 
             return (
               <div
@@ -110,7 +163,7 @@ export default function Watchlist({ watchlist, onRemoveFromWatchlist, onAddToWat
                         {stock.exchange}
                       </span>
                     </div>
-                    <div className="text-xs text-zinc-400 font-medium truncate max-w-[180px]">
+                    <div className="text-xs text-zinc-400 font-medium truncate max-w-[190px]">
                       {stock.name}
                     </div>
                   </div>
@@ -128,7 +181,7 @@ export default function Watchlist({ watchlist, onRemoveFromWatchlist, onAddToWat
                 <div className="flex items-baseline justify-between">
                   <div>
                     <span className="text-2xl font-extrabold text-slate-100 font-mono">
-                      ₹{stock.price.toLocaleString()}
+                      ₹{Number(stock.price || 0).toLocaleString()}
                     </span>
                   </div>
                   <div
@@ -139,26 +192,90 @@ export default function Watchlist({ watchlist, onRemoveFromWatchlist, onAddToWat
                     }`}
                   >
                     {isPositive ? <ArrowUpRight className="w-3.5 h-3.5 mr-0.5" /> : <ArrowDownRight className="w-3.5 h-3.5 mr-0.5" />}
-                    {isPositive ? '+' : ''}{stock.changePercent}%
+                    {isPositive ? '+' : ''}{stock.changePercent ?? 0}%
                   </div>
                 </div>
 
-                {/* Score Badges Row */}
-                <div className="grid grid-cols-2 gap-2 pt-2 border-t border-slate-800/60 text-xs">
-                  <div className="flex items-center justify-between p-2 rounded-xl bg-zinc-900/80 border border-zinc-800">
-                    <span className="text-slate-400 flex items-center gap-1">
-                      <Award className="w-3.5 h-3.5 text-emerald-400" /> 360° Score
-                    </span>
-                    <span className="font-extrabold text-emerald-400">{stock.score}/100</span>
+                {/* Dual Score Badges Row (Static & AI Side-by-Side) */}
+                <div className="grid grid-cols-2 gap-2 pt-2 border-t border-zinc-800/80 text-xs">
+                  {/* Static Financial Score */}
+                  <div className="p-2.5 rounded-xl bg-zinc-900/80 border border-zinc-800 flex flex-col justify-between">
+                    <div className="flex items-center justify-between text-[10px] text-zinc-400 font-semibold uppercase tracking-wider mb-1">
+                      <span className="flex items-center gap-1">
+                        <BarChart2 className="w-3 h-3 text-emerald-400" /> Static
+                      </span>
+                      <span className="text-zinc-500 font-mono text-[9px]">
+                        {stock.staticCategory || 'Pure'}
+                      </span>
+                    </div>
+                    <div className="flex items-baseline justify-between">
+                      <span className="text-base font-black text-emerald-400 font-mono">
+                        {stock.staticScore ?? stock.score ?? '—'}
+                      </span>
+                      <span className="text-[9px] text-zinc-500 font-mono">/ 100</span>
+                    </div>
+                  </div>
+
+                  {/* AI 360° Score with Inline Generate / Re-run */}
+                  <div className="p-2.5 rounded-xl bg-zinc-900/80 border border-zinc-800 flex flex-col justify-between">
+                    <div className="flex items-center justify-between text-[10px] text-indigo-300 font-semibold uppercase tracking-wider mb-1">
+                      <span className="flex items-center gap-1">
+                        <Sparkles className="w-3 h-3 text-indigo-400" /> AI 360°
+                      </span>
+                      {stock.hasAIAnalysis && (
+                        <span className="text-[9px] text-indigo-400 font-mono font-bold">
+                          {stock.aiCategory || 'AI'}
+                        </span>
+                      )}
+                    </div>
+
+                    <div className="flex items-center justify-between mt-0.5">
+                      {stock.hasAIAnalysis ? (
+                        <div className="flex items-baseline gap-0.5">
+                          <span className="text-base font-black text-indigo-300 font-mono">
+                            {stock.aiScore}
+                          </span>
+                          <span className="text-[9px] text-zinc-500 font-mono">/ 100</span>
+                        </div>
+                      ) : (
+                        <span className="text-[10px] text-zinc-500 italic">Not run</span>
+                      )}
+
+                      {/* Inline Generate / Re-run Action Button */}
+                      <button
+                        onClick={(e) => handleGenerateAIForStock(e, stock.symbol)}
+                        disabled={generatingSymbol === stock.symbol}
+                        title={stock.hasAIAnalysis ? "Regenerate AI Analysis" : "Generate AI Analysis"}
+                        className={`px-2 py-1 rounded-lg text-[10px] font-bold flex items-center gap-1 transition-all ${
+                          stock.hasAIAnalysis
+                            ? 'bg-zinc-800 hover:bg-zinc-700 text-zinc-300 border border-zinc-700 hover:text-white'
+                            : 'bg-gradient-to-r from-emerald-600 to-indigo-600 hover:from-emerald-500 hover:to-indigo-500 text-white shadow-sm shadow-indigo-500/20'
+                        } disabled:opacity-50`}
+                      >
+                        {generatingSymbol === stock.symbol ? (
+                          <div className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                        ) : stock.hasAIAnalysis ? (
+                          <>
+                            <RotateCw className="w-2.5 h-2.5" />
+                            <span>Re-run</span>
+                          </>
+                        ) : (
+                          <>
+                            <Zap className="w-2.5 h-2.5" />
+                            <span>Generate</span>
+                          </>
+                        )}
+                      </button>
+                    </div>
                   </div>
                 </div>
 
-                {/* Open 360 Analysis Button */}
+                {/* View 360 Analysis Button */}
                 <button
                   onClick={() => onSelectStock(stock.symbol)}
                   className="w-full py-2 bg-zinc-900 hover:bg-emerald-500/10 hover:text-emerald-400 text-zinc-300 text-[11px] uppercase tracking-wider font-bold rounded-xl border border-zinc-800 hover:border-emerald-500/40 flex items-center justify-center gap-1.5 transition-all"
                 >
-                  <ExternalLink className="w-3.5 h-3.5" /> View 360° Analysis
+                  <ExternalLink className="w-3.5 h-3.5" /> View 360° Deep Dive
                 </button>
               </div>
             );

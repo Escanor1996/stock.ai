@@ -21,7 +21,6 @@ import {
 import { fetchStockData, fetchAIAnalysis } from './utils/api';
 import ScoreGauge from './components/ScoreGauge';
 import StockChart from './components/StockChart';
-import RadarChartComponent from './components/RadarChart';
 import QuarterlyAnalysis from './components/QuarterlyAnalysis';
 import PeerComparison from './components/PeerComparison';
 import Watchlist from './components/Watchlist';
@@ -351,16 +350,12 @@ export default function App() {
             {/* Quarterly Analysis Section (Recent Financials) */}
             <QuarterlyAnalysis financials={currentStock.quarterlyFinancials} />
 
-            {/* Top Grid: 360° Gauge (Left) + 6-Axis Spider Radar (Right) */}
-            {/* Top Grid: 360° Gauge (Left) + 6-Axis Spider Radar (Right) */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              <ScoreGauge
-                stock={currentStock}
-                onTriggerAI={handleGenerateAI}
-                isAILoading={isAILoading}
-              />
-              <RadarChartComponent data={currentStock.radarScores} />
-            </div>
+            {/* 360° Score Matrix Dual Engine Card */}
+            <ScoreGauge
+              stock={currentStock}
+              onTriggerAI={handleGenerateAI}
+              isAILoading={isAILoading}
+            />
 
             {/* AI Verdict & Drivers Card */}
             <div className="glass-panel rounded-2xl p-6 border border-zinc-800 bg-black space-y-4">
