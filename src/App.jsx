@@ -15,15 +15,16 @@ import {
   ArrowUpRight,
   ArrowDownRight,
   ExternalLink,
-  ChevronRight
+  ChevronRight,
+  Briefcase
 } from 'lucide-react';
 import { fetchStockData, fetchAIScore, fetchAIVerdict } from './utils/api';
 import ScoreGauge from './components/ScoreGauge';
 import StockChart from './components/StockChart';
 import QuarterlyAnalysis from './components/QuarterlyAnalysis';
 import Watchlist from './components/Watchlist';
+import Portfolio from './components/Portfolio';
 import SearchModal from './components/SearchModal';
-
 class ErrorBoundary extends React.Component {
   constructor(props) { super(props); this.state = { hasError: false, error: null }; }
   static getDerivedStateFromError(error) { return { hasError: true, error }; }
@@ -193,7 +194,19 @@ export default function App() {
         </div>
 
         {/* Right Watchlist Quick Counter */}
-        <div className="flex items-center gap-3 shrink-0">
+        {/* Right Navigation Quick Buttons */}
+        <div className="flex items-center gap-2.5 shrink-0">
+          <button
+            onClick={() => setActiveTab('portfolio')}
+            className={`px-3.5 py-2 rounded-xl text-xs font-bold flex items-center gap-2 border transition-all ${
+              activeTab === 'portfolio'
+                ? 'bg-emerald-500 text-slate-950 border-emerald-500 shadow-md shadow-emerald-500/20'
+                : 'bg-zinc-900 text-zinc-300 border-zinc-800 hover:border-zinc-700 hover:text-white'
+            }`}
+          >
+            <Briefcase className="w-4 h-4 text-cyan-400" />
+            <span className="hidden sm:inline">Portfolio</span>
+          </button>
           <button
             onClick={() => setActiveTab('watchlist')}
             className={`px-3.5 py-2 rounded-xl text-xs font-bold flex items-center gap-2 border transition-all ${
@@ -217,17 +230,6 @@ export default function App() {
         <div className="flex items-center justify-between border-b border-zinc-800/80 pb-3 gap-4 overflow-x-auto no-scrollbar">
           <div className="flex items-center gap-2 min-w-max">
             <button
-              onClick={() => setActiveTab('analysis')}
-              className={`px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-2 transition-all ${
-                activeTab === 'analysis'
-                  ? 'bg-emerald-500 text-slate-950 shadow-md shadow-emerald-500/20'
-                  : 'text-slate-400 hover:text-slate-200 hover:bg-zinc-900/60'
-              }`}
-            >
-              <Activity className="w-4 h-4" /> 360° Deep Dive
-            </button>
-
-            <button
               onClick={() => setActiveTab('watchlist')}
               className={`px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-2 transition-all ${
                 activeTab === 'watchlist'
@@ -236,6 +238,28 @@ export default function App() {
               }`}
             >
               <Star className="w-4 h-4" /> Watchlist ({watchlist.length})
+            </button>
+
+            <button
+              onClick={() => setActiveTab('portfolio')}
+              className={`px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-2 transition-all ${
+                activeTab === 'portfolio'
+                  ? 'bg-emerald-500 text-slate-950 shadow-md shadow-emerald-500/20'
+                  : 'text-slate-400 hover:text-slate-200 hover:bg-zinc-900/60'
+              }`}
+            >
+              <Briefcase className="w-4 h-4" /> Portfolio Exporter
+            </button>
+
+            <button
+              onClick={() => setActiveTab('analysis')}
+              className={`px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-2 transition-all ${
+                activeTab === 'analysis'
+                  ? 'bg-emerald-500 text-slate-950 shadow-md shadow-emerald-500/20'
+                  : 'text-slate-400 hover:text-slate-200 hover:bg-zinc-900/60'
+              }`}
+            >
+              <Activity className="w-4 h-4" /> 360° Deep Dive
             </button>
           </div>
 
@@ -260,11 +284,10 @@ export default function App() {
           </div>
         </div>
         {/* Tab Views */}
-        {isLoading || !currentStock ? (
-          <div className="flex flex-col items-center justify-center py-20 space-y-4">
-            <div className="w-10 h-10 border-4 border-emerald-500 border-t-transparent rounded-full animate-spin"></div>
-            <p className="text-sm font-bold text-slate-400 animate-pulse">Fetching live data for {currentSymbol}...</p>
-          </div>
+        {activeTab === 'portfolio' ? (
+          <Portfolio
+            onSelectStock={handleSelectStock}
+          />
         ) : activeTab === 'watchlist' ? (
           <Watchlist
             watchlist={watchlist}
@@ -272,6 +295,11 @@ export default function App() {
             onAddToWatchlist={handleAddToWatchlist}
             onSelectStock={handleSelectStock}
           />
+        ) : isLoading || !currentStock ? (
+          <div className="flex flex-col items-center justify-center py-20 space-y-4">
+            <div className="w-10 h-10 border-4 border-emerald-500 border-t-transparent rounded-full animate-spin"></div>
+            <p className="text-sm font-bold text-slate-400 animate-pulse">Fetching live data for {currentSymbol}...</p>
+          </div>
         ) : (
           <ErrorBoundary>
           {/* Main 360° Deep Dive Analysis View */}

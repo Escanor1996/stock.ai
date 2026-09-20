@@ -89,6 +89,25 @@ db.exec(`
     engine           TEXT,
     updated_at       INTEGER NOT NULL DEFAULT 0
   );
+
+  CREATE TABLE IF NOT EXISTS user_portfolio (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    isin          TEXT,
+    symbol        TEXT,
+    name          TEXT,
+    quantity      REAL,
+    price         REAL,
+    value         REAL,
+    asset_type    TEXT,
+    depository    TEXT,
+    account_name  TEXT,
+    updated_at    INTEGER NOT NULL DEFAULT 0
+  );
+  CREATE TABLE IF NOT EXISTS portfolio_meta (
+    key           TEXT PRIMARY KEY,
+    value         TEXT,
+    updated_at    INTEGER NOT NULL DEFAULT 0
+  );
 `);
 
 // Safe migrations for new columns in ai_analysis
@@ -220,6 +239,19 @@ const stmts = {
   `),
 
   getAIAnalysis: db.prepare('SELECT * FROM ai_analysis WHERE ticker = ?'),
+  clearPortfolio: db.prepare('DELETE FROM user_portfolio'),
+  insertPortfolioItem: db.prepare(`
+    INSERT INTO user_portfolio (isin, symbol, name, quantity, price, value, asset_type, depository, account_name, updated_at)
+    VALUES (@isin, @symbol, @name, @quantity, @price, @value, @asset_type, @depository, @account_name, @updated_at)
+  `),
+  getPortfolio: db.prepare('SELECT * FROM user_portfolio ORDER BY value DESC'),
+  setPortfolioMeta: db.prepare(`
+    INSERT INTO portfolio_meta (key, value, updated_at)
+    VALUES (@key, @value, @updated_at)
+    ON CONFLICT(key) DO UPDATE SET value = @value, updated_at = @updated_at
+  `),
+  getPortfolioMeta: db.prepare('SELECT * FROM portfolio_meta'),
+  clearPortfolioMeta: db.prepare('DELETE FROM portfolio_meta'),
 };
 
 // ── Public API ──────────────────────────────────────────────────────────────
@@ -307,6 +339,54 @@ export function getAIAnalysis(ticker) {
   };
 }
 
+
+export function savePortfolioHoldings(holdings, meta = {}) {
+  const tx = db.transaction(() => {
+    stmts.clearPortfolio.run();
+    const now = Date.now();
+    for (const h of holdings) {
+      stmts.insertPortfolioItem.run({
+        isin: h.isin || '',
+        symbol: h.symbol || '',
+        name: h.name || '',
+        quantity: h.quantity || 0,
+        price: h.price || 0,
+        value: h.value || 0,
+        asset_type: h.asset_type || 'EQUITY',
+        depository: h.depository || '',
+        account_name: h.account_name || '',
+        updated_at: now
+      });
+    }
+    for (const [k, v] of Object.entries(meta)) {
+      stmts.setPortfolioMeta.run({
+        key: k,
+        value: typeof v === 'object' ? JSON.stringify(v) : String(v),
+        updated_at: now
+      });
+    }
+  });
+  tx();
+}
+
+export function getPortfolioHoldings() {
+  const holdings = stmts.getPortfolio.all();
+  const metaRows = stmts.getPortfolioMeta.all();
+  const meta = {};
+  for (const row of metaRows) {
+    try {
+      meta[row.key] = JSON.parse(row.value);
+    } catch {
+      meta[row.key] = row.value;
+    }
+  }
+  return { holdings, meta };
+}
+
+export function clearPortfolioHoldings() {
+  stmts.clearPortfolio.run();
+  stmts.clearPortfolioMeta.run();
+}
 
 /** Check if data is stale (older than `maxAgeMs`). */
 export function isStale(updatedAt, maxAgeMs) {

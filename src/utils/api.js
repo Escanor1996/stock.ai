@@ -229,3 +229,72 @@ function buildBearPoints(d) {
   if (points.length === 0) points.push('No major red flags identified from available data.');
   return points;
 }
+
+// ── Portfolio API ────────────────────────────────────────────────────────────
+
+export async function uploadCASFile(file, password = '', enrich = true) {
+  const formData = new FormData();
+  formData.append('file', file);
+  formData.append('password', password);
+
+  const response = await fetch(`/api/portfolio/parse?enrich=${enrich}`, {
+    method: 'POST',
+    body: formData,
+  });
+
+  const result = await response.json();
+  if (!response.ok || !result.success) {
+    const err = new Error(result.error || result.message || 'Failed to parse CAS statement');
+    err.errorType = result.error_type;
+    throw err;
+  }
+
+  return result;
+}
+
+export async function fetchSamplePortfolio() {
+  const response = await fetch('/api/portfolio/sample');
+  if (!response.ok) throw new Error('Failed to load sample portfolio');
+  return response.json();
+}
+
+export async function savePortfolio(holdings, meta = {}) {
+  const response = await fetch('/api/portfolio/save', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ holdings, meta }),
+  });
+  if (!response.ok) throw new Error('Failed to save portfolio');
+  return response.json();
+}
+
+export async function fetchSavedPortfolio() {
+  const response = await fetch('/api/portfolio');
+  if (!response.ok) throw new Error('Failed to fetch saved portfolio');
+  return response.json();
+}
+
+export async function clearSavedPortfolio() {
+  const response = await fetch('/api/portfolio', { method: 'DELETE' });
+  if (!response.ok) throw new Error('Failed to clear portfolio');
+  return response.json();
+}
+
+export async function exportPortfolioCSV(holdings, summary) {
+  const response = await fetch('/api/portfolio/export/csv', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ holdings, summary }),
+  });
+
+  if (!response.ok) throw new Error('Failed to export CSV');
+  const blob = await response.blob();
+  const url = window.URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `stock_ai_portfolio_${new Date().toISOString().slice(0, 10)}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  window.URL.revokeObjectURL(url);
+  a.remove();
+}

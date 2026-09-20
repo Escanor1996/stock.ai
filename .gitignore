@@ -7,3 +7,6 @@ dist/
 *.log
 SESSION_NOTES.md
 SESSION_STATE.md
+server/venv/
+uploads/
+temp/

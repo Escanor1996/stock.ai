@@ -3,7 +3,16 @@ import express from 'express';
 import cors from 'cors';
 import { getStockData, getHistoricalPrices, searchStocks } from './services/stockService.js';
 import { generateAIScore, generateAIVerdict, generateAIAnalysis } from './services/aiService.js';
+import { parseCASFile, getSamplePortfolio, exportToCSV } from './services/casService.js';
+import * as db from './db.js';
+import multer from 'multer';
+import os from 'os';
+import path from 'path';
 
+const upload = multer({
+  dest: path.join(os.tmpdir(), 'stock_ai_cas_uploads'),
+  limits: { fileSize: 25 * 1024 * 1024 } // 25MB max
+});
 const app = express();
 const port = process.env.PORT || 3001;
 
@@ -132,6 +141,97 @@ app.get('/api/scrape', async (req, res) => {
   } catch (err) {
     console.error(`Legacy scrape error for ${ticker}:`, err);
     res.status(500).json({ error: 'Failed to fetch stock data' });
+  }
+});
+
+// ── Portfolio Endpoints ───────────────────────────────────────────────────────
+
+// POST /api/portfolio/parse — Parse uploaded CAS PDF (CDSL / NSDL / CAMS)
+app.post('/api/portfolio/parse', upload.single('file'), async (req, res) => {
+  if (!req.file) {
+    return res.status(400).json({ success: false, error: 'No PDF file uploaded' });
+  }
+
+  const password = req.body.password || '';
+  const enrich = req.query.enrich !== 'false';
+
+  try {
+    const result = await parseCASFile(req.file.path, password, enrich);
+    res.json(result);
+  } catch (err) {
+    console.error('CAS parse error:', err.message);
+    const statusCode = err.errorType === 'INCORRECT_PASSWORD' ? 401 : 422;
+    res.status(statusCode).json({
+      success: false,
+      error_type: err.errorType || 'PARSE_ERROR',
+      error: err.message || 'Failed to process CAS statement'
+    });
+  }
+});
+
+// GET /api/portfolio/sample — Load instant demo portfolio for evaluation
+app.get('/api/portfolio/sample', (req, res) => {
+  try {
+    const sample = getSamplePortfolio();
+    res.json(sample);
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// POST /api/portfolio/save — Persist portfolio to local SQLite
+app.post('/api/portfolio/save', (req, res) => {
+  const { holdings, meta } = req.body;
+  if (!holdings || !Array.isArray(holdings)) {
+    return res.status(400).json({ success: false, error: 'Holdings array is required' });
+  }
+
+  try {
+    db.savePortfolioHoldings(holdings, meta || {});
+    res.json({ success: true, message: 'Portfolio saved successfully' });
+  } catch (err) {
+    console.error('Save portfolio error:', err);
+    res.status(500).json({ success: false, error: 'Failed to save portfolio' });
+  }
+});
+
+// GET /api/portfolio — Retrieve saved portfolio from local SQLite
+app.get('/api/portfolio', (req, res) => {
+  try {
+    const data = db.getPortfolioHoldings();
+    res.json({ success: true, data });
+  } catch (err) {
+    console.error('Get portfolio error:', err);
+    res.status(500).json({ success: false, error: 'Failed to retrieve portfolio' });
+  }
+});
+
+// DELETE /api/portfolio — Clear saved portfolio
+app.delete('/api/portfolio', (req, res) => {
+  try {
+    db.clearPortfolioHoldings();
+    res.json({ success: true, message: 'Portfolio cleared successfully' });
+  } catch (err) {
+    console.error('Clear portfolio error:', err);
+    res.status(500).json({ success: false, error: 'Failed to clear portfolio' });
+  }
+});
+
+// POST /api/portfolio/export/csv — Generate downloadable CSV
+app.post('/api/portfolio/export/csv', (req, res) => {
+  const { holdings, summary } = req.body;
+  if (!holdings || !Array.isArray(holdings)) {
+    return res.status(400).json({ success: false, error: 'Holdings array is required' });
+  }
+
+  try {
+    const csv = exportToCSV(holdings, summary);
+    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader('Content-Disposition', 'attachment; filename="stock_ai_portfolio.csv"');
+    res.send(csv);
+  } catch (err) {
+    console.error('Export CSV error:', err);
+    res.status(500).json({ success: false, error: 'Failed to generate CSV' });
   }
 });
 
