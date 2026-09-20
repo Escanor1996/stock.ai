@@ -82,18 +82,18 @@ function normalizeForUI(data) {
     return Math.max(0, Math.min(100, Math.round(score)));
   };
 
-  const baseScore = computeScore(data);
-  const baseScoreCategory =
-    baseScore >= 80 ? 'Exceptional' :
-    baseScore >= 65 ? 'Strong' :
-    baseScore >= 50 ? 'Moderate' :
+  const staticScore = data.staticScore ?? computeScore(data);
+  const staticCategory =
+    staticScore >= 80 ? 'Exceptional' :
+    staticScore >= 65 ? 'Strong' :
+    staticScore >= 50 ? 'Moderate' :
     'Needs Attention';
 
-  const hasAI = Boolean(data.aiAnalysis && data.aiAnalysis.verdict);
-  const finalScore = hasAI ? data.aiAnalysis.score : baseScore;
-  const finalScoreCategory = hasAI
+  const hasAI = Boolean(data.aiAnalysis && data.aiAnalysis.score != null);
+  const aiScore = hasAI ? data.aiAnalysis.score : null;
+  const aiCategory = hasAI
     ? (data.aiAnalysis.score >= 80 ? 'Exceptional' : data.aiAnalysis.score >= 60 ? 'Strong' : 'Needs Attention')
-    : baseScoreCategory;
+    : null;
   return {
     symbol: data.symbol,
     yahooSymbol: data.yahooSymbol,
@@ -126,11 +126,23 @@ function normalizeForUI(data) {
     high52: data.high52 || 0,
     low52: data.low52 || 0,
 
-    // Computed score
-    score: finalScore,
-    scoreCategory: finalScoreCategory,
-    // Radar scores from real data
-    radarScores: buildRadarScores(data),
+    // Deterministic Static Financial Score
+    staticScore,
+    staticCategory,
+    staticBreakdown: data.staticBreakdown || {
+      capitalEfficiency: 50,
+      growth: 50,
+      solvency: 50,
+      valuation: 50,
+      priceHealth: 50
+    },
+
+    // Legacy unified score for backward compat
+    score: aiScore ?? staticScore,
+    scoreCategory: aiCategory ?? staticCategory,
+
+    // Radar scores (6-axis institutional breakdown)
+    radarScores: buildRadarScores(data, hasAI ? data.aiAnalysis.parameterScores : null),
 
     // Quarterly
     quarterlyFinancials: (data.quarterlyFinancials || []).map((q) => ({
@@ -145,29 +157,43 @@ function normalizeForUI(data) {
     })),
 
     // Persisted AI Analysis section
+    // Persisted AI 360° Analysis section
     hasAIAnalysis: hasAI,
+    aiScore,
+    aiCategory,
     engine: hasAI ? data.aiAnalysis.engine : null,
     aiVerdict: hasAI ? data.aiAnalysis.verdict : null,
     bullPoints: hasAI ? (data.aiAnalysis.bullPoints || []) : [],
     bearPoints: hasAI ? (data.aiAnalysis.bearPoints || []) : [],
-
-
+    futurePoints: hasAI ? (data.aiAnalysis.futurePoints || []) : [],
+    parameterScores: hasAI ? (data.aiAnalysis.parameterScores || {}) : {},
+    governanceNotes: hasAI ? (data.aiAnalysis.governanceNotes || '') : '',
     peers: [],
 
     lastUpdated: data.lastUpdated,
   };
 }
 
-function buildRadarScores(d) {
-  const norm = (val, max) => val != null ? Math.min(100, Math.round((val / max) * 100)) : 40;
+function buildRadarScores(d, aiParams) {
+  if (aiParams && Object.keys(aiParams).length > 0) {
+    return [
+      { category: 'Capital Efficiency', score: aiParams.capitalEfficiency ?? 50 },
+      { category: 'Growth Momentum', score: aiParams.growth ?? 50 },
+      { category: 'Solvency & Health', score: aiParams.solvency ?? 50 },
+      { category: 'Valuation Safety', score: aiParams.valuation ?? 50 },
+      { category: 'Corp Governance', score: aiParams.corporateGovernance ?? 75 },
+      { category: 'Future Potential', score: aiParams.futurePotential ?? 75 },
+    ];
+  }
 
+  const breakdown = d.staticBreakdown || {};
   return [
-    { category: 'Profitability', score: norm(d.roe, 30) },
-    { category: 'Efficiency', score: norm(d.roce, 35) },
-    { category: 'Valuation', score: d.peRatio ? Math.max(10, Math.min(100, Math.round(100 - (d.peRatio / 50) * 100 + 50))) : 50 },
-    { category: 'Growth', score: 50 }, // needs revenue growth data
-    { category: 'Leverage', score: d.debtToEquity != null ? Math.max(10, Math.min(100, Math.round(100 - d.debtToEquity * 20))) : 50 },
-    { category: 'Stability', score: 50 }, // needs volatility data
+    { category: 'Capital Efficiency', score: breakdown.capitalEfficiency ?? 50 },
+    { category: 'Growth Momentum', score: breakdown.growth ?? 50 },
+    { category: 'Solvency & Health', score: breakdown.solvency ?? 50 },
+    { category: 'Valuation Safety', score: breakdown.valuation ?? 50 },
+    { category: 'Price Health', score: breakdown.priceHealth ?? 50 },
+    { category: 'Future Potential', score: 50 },
   ];
 }
 

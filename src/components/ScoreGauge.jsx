@@ -1,16 +1,23 @@
 import React from 'react';
-import { Award, ShieldCheck, Zap, TrendingUp } from 'lucide-react';
+import { Award, ShieldCheck, Sparkles, TrendingUp, Cpu, BarChart2 } from 'lucide-react';
 
-export default function ScoreGauge({ score, category, stock }) {
-  // Determine color theme based on 0-100 score
-  const getScoreTheme = (val) => {
+export default function ScoreGauge({ stock, onTriggerAI, isAILoading }) {
+  if (!stock) return null;
+
+  const staticScore = stock.staticScore ?? stock.score ?? 50;
+  const staticCategory = stock.staticCategory ?? stock.scoreCategory ?? 'Moderate';
+
+  const hasAI = Boolean(stock.hasAIAnalysis && stock.aiScore != null);
+  const aiScore = stock.aiScore;
+  const aiCategory = stock.aiCategory || 'Pending';
+
+  const getTheme = (val) => {
     if (val >= 80) {
       return {
         stroke: '#06b6d4', // cyan
-        text: 'text-emerald-400',
-        bg: 'from-emerald-500/20 to-blue-600/10',
-        badge: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40',
-        glow: 'glow-cyan',
+        text: 'text-cyan-400',
+        bg: 'from-cyan-500/20 to-blue-600/10',
+        badge: 'bg-cyan-500/20 text-cyan-300 border-cyan-500/40',
         label: 'Exceptional'
       };
     } else if (val >= 65) {
@@ -19,7 +26,6 @@ export default function ScoreGauge({ score, category, stock }) {
         text: 'text-emerald-400',
         bg: 'from-emerald-500/20 to-teal-600/10',
         badge: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40',
-        glow: 'glow-emerald',
         label: 'Strong'
       };
     } else if (val >= 50) {
@@ -28,7 +34,6 @@ export default function ScoreGauge({ score, category, stock }) {
         text: 'text-amber-400',
         bg: 'from-amber-500/20 to-yellow-600/10',
         badge: 'bg-amber-500/20 text-amber-300 border-amber-500/40',
-        glow: 'glow-amber',
         label: 'Moderate'
       };
     } else {
@@ -37,117 +42,194 @@ export default function ScoreGauge({ score, category, stock }) {
         text: 'text-rose-400',
         bg: 'from-rose-500/20 to-red-600/10',
         badge: 'bg-rose-500/20 text-rose-300 border-rose-500/40',
-        glow: 'glow-rose',
         label: 'High Risk'
       };
     }
   };
 
-  const theme = getScoreTheme(score);
-  const strokeDashoffset = 440 - (440 * score) / 100;
+  const staticTheme = getTheme(staticScore);
+  const staticOffset = 314 - (314 * staticScore) / 100;
+
+  const aiTheme = hasAI ? getTheme(aiScore) : null;
+  const aiOffset = hasAI ? 314 - (314 * aiScore) / 100 : 314;
 
   return (
-    <div className="glass-panel rounded-2xl p-6 relative overflow-hidden flex flex-col justify-between border border-slate-800">
-      {/* Subtle Background Glow */}
-      <div className={`absolute -top-12 -right-12 w-48 h-48 rounded-full bg-gradient-to-br ${theme.bg} blur-3xl opacity-60 pointer-events-none`}></div>
+    <div className="glass-panel rounded-2xl p-5 border border-slate-800 relative overflow-hidden flex flex-col justify-between">
+      {/* Background Accent Glow */}
+      <div className={`absolute -top-12 -right-12 w-64 h-64 rounded-full bg-gradient-to-br ${staticTheme.bg} blur-3xl opacity-40 pointer-events-none`}></div>
 
-      {/* Header Label */}
-      <div className="flex items-center justify-between z-10">
+      {/* Header */}
+      <div className="flex items-center justify-between z-10 border-b border-slate-800/80 pb-3 mb-4">
         <div className="flex items-center gap-2">
           <Award className="w-5 h-5 text-emerald-400" />
-          <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">stock.ai 360° Score</span>
+          <h3 className="text-sm font-bold uppercase tracking-wider text-slate-200">
+            stock.ai 360° Score Matrix
+          </h3>
         </div>
-        <span className={`text-xs px-3 py-1 rounded-full font-medium border ${theme.badge}`}>
-          {category || theme.label}
-        </span>
+        <div className="flex items-center gap-2">
+          <span className="text-[11px] text-slate-400">Dual-Engine Model</span>
+        </div>
       </div>
 
-      {/* Main Wheel & Score Display */}
-      <div className="flex flex-col md:flex-row items-center justify-around my-6 gap-6 z-10">
-        <div className="relative w-44 h-44 flex items-center justify-center">
-          <svg className="w-full h-full transform -rotate-90" viewBox="0 0 160 160">
-            {/* Background Ring */}
-            <circle
-              cx="80"
-              cy="80"
-              r="70"
-              stroke="rgba(255,255,255,0.06)"
-              strokeWidth="12"
-              fill="transparent"
-            />
-            {/* Progress Arc */}
-            <circle
-              cx="80"
-              cy="80"
-              r="70"
-              stroke={theme.stroke}
-              strokeWidth="12"
-              strokeLinecap="round"
-              fill="transparent"
-              strokeDasharray="440"
-              strokeDashoffset={strokeDashoffset}
-              className="transition-all duration-1000 ease-out"
-            />
-          </svg>
-
-          {/* Centered Score */}
-          <div className="absolute flex flex-col items-center justify-center text-center">
-            <span className={`text-4xl font-extrabold ${theme.text} tracking-tight`}>
-              {score}
+      {/* Side-by-Side Dual Gauges */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 my-2 z-10">
+        
+        {/* Left Gauge: Deterministic Financial Score */}
+        <div className="bg-slate-900/70 rounded-xl p-4 border border-slate-800/90 flex flex-col items-center text-center relative group">
+          <div className="flex items-center justify-between w-full mb-1">
+            <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
+              <BarChart2 className="w-3.5 h-3.5 text-emerald-400" /> Static Financial
             </span>
-            <span className="text-[10px] text-slate-400 font-medium uppercase tracking-widest mt-0.5">out of 100</span>
+            <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold border ${staticTheme.badge}`}>
+              {staticCategory}
+            </span>
           </div>
+
+          <div className="relative w-32 h-32 my-2 flex items-center justify-center">
+            <svg className="w-full h-full transform -rotate-90" viewBox="0 0 120 120">
+              <circle
+                cx="60"
+                cy="60"
+                r="50"
+                stroke="rgba(255,255,255,0.07)"
+                strokeWidth="10"
+                fill="transparent"
+              />
+              <circle
+                cx="60"
+                cy="60"
+                r="50"
+                stroke={staticTheme.stroke}
+                strokeWidth="10"
+                strokeLinecap="round"
+                fill="transparent"
+                strokeDasharray="314"
+                strokeDashoffset={staticOffset}
+                className="transition-all duration-1000 ease-out"
+              />
+            </svg>
+            <div className="absolute flex flex-col items-center justify-center">
+              <span className={`text-3xl font-black ${staticTheme.text}`}>
+                {staticScore}
+              </span>
+              <span className="text-[9px] text-slate-400 font-semibold uppercase tracking-wider">out of 100</span>
+            </div>
+          </div>
+
+          <p className="text-[11px] text-slate-400 mt-1 leading-snug">
+            100% deterministic score based on ROE, ROCE, margin growth & leverage.
+          </p>
         </div>
 
-        {/* Side Fundamental Pillars */}
-        <div className="flex flex-col gap-3 w-full md:w-auto">
-          {/* Capital Efficiency (ROE & ROCE) */}
-          <div className="flex items-center justify-between p-3 rounded-xl bg-slate-900/60 border border-slate-800/80 min-w-[210px]">
-            <div className="flex items-center gap-2.5">
-              <div className="p-1.5 rounded-lg bg-emerald-500/10 text-emerald-400">
-                <TrendingUp className="w-4 h-4" />
-              </div>
-              <div>
-                <div className="text-xs text-slate-400 font-medium">Capital Efficiency</div>
-                <div className="text-sm font-bold text-slate-100">
-                  {stock?.roe != null && stock.roe !== 'N/A' ? `ROE ${stock.roe}` : 'ROE N/A'}
-                  {stock?.roce != null && stock.roce !== 'N/A' && (
-                    <span className="text-xs font-normal text-slate-400 ml-1.5">· ROCE {stock.roce}</span>
-                  )}
-                </div>
-              </div>
-            </div>
-            <span className="text-xs font-semibold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">Active</span>
+        {/* Right Gauge: AI 360° Qualitative Score */}
+        <div className="bg-slate-900/70 rounded-xl p-4 border border-slate-800/90 flex flex-col items-center text-center relative group">
+          <div className="flex items-center justify-between w-full mb-1">
+            <span className="text-[11px] font-bold text-indigo-300 uppercase tracking-wider flex items-center gap-1.5">
+              <Sparkles className="w-3.5 h-3.5 text-indigo-400" /> AI 360° Verdict
+            </span>
+            {hasAI ? (
+              <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold border ${aiTheme.badge}`}>
+                {aiCategory}
+              </span>
+            ) : (
+              <span className="text-[10px] px-2 py-0.5 rounded-full font-bold border border-slate-700 text-slate-400 bg-slate-800/80">
+                Awaiting
+              </span>
+            )}
           </div>
 
-          {/* Solvency & Valuation (D/E & P/E) */}
-          <div className="flex items-center justify-between p-3 rounded-xl bg-slate-900/60 border border-slate-800/80 min-w-[210px]">
-            <div className="flex items-center gap-2.5">
-              <div className="p-1.5 rounded-lg bg-blue-500/10 text-blue-400">
-                <ShieldCheck className="w-4 h-4" />
-              </div>
-              <div>
-                <div className="text-xs text-slate-400 font-medium">Solvency & Valuation</div>
-                <div className="text-sm font-bold text-slate-100">
-                  {stock?.debtToEquity != null ? `D/E ${stock.debtToEquity}` : 'D/E N/A'}
-                  {stock?.peRatio ? (
-                    <span className="text-xs font-normal text-slate-400 ml-1.5">{`· P/E ${stock.peRatio}x`}</span>
-                  ) : null}
-                </div>
+          {hasAI ? (
+            <div className="relative w-32 h-32 my-2 flex items-center justify-center">
+              <svg className="w-full h-full transform -rotate-90" viewBox="0 0 120 120">
+                <circle
+                  cx="60"
+                  cy="60"
+                  r="50"
+                  stroke="rgba(255,255,255,0.07)"
+                  strokeWidth="10"
+                  fill="transparent"
+                />
+                <circle
+                  cx="60"
+                  cy="60"
+                  r="50"
+                  stroke={aiTheme.stroke}
+                  strokeWidth="10"
+                  strokeLinecap="round"
+                  fill="transparent"
+                  strokeDasharray="314"
+                  strokeDashoffset={aiOffset}
+                  className="transition-all duration-1000 ease-out"
+                />
+              </svg>
+              <div className="absolute flex flex-col items-center justify-center">
+                <span className={`text-3xl font-black ${aiTheme.text}`}>
+                  {aiScore}
+                </span>
+                <span className="text-[9px] text-slate-400 font-semibold uppercase tracking-wider">out of 100</span>
               </div>
             </div>
-            <span className="text-xs font-semibold text-blue-400 bg-blue-500/10 px-2 py-0.5 rounded border border-blue-500/20">Live</span>
+          ) : (
+            <div className="relative w-32 h-32 my-2 flex items-center justify-center border-2 border-dashed border-slate-800 rounded-full">
+              <div className="flex flex-col items-center justify-center p-2 text-center">
+                <Cpu className="w-6 h-6 text-slate-600 mb-1" />
+                <span className="text-[10px] text-slate-400 font-semibold leading-tight">Click Generate Below</span>
+              </div>
+            </div>
+          )}
+
+          <div className="flex items-center gap-1.5 mt-1">
+            {hasAI && stock.engine && (
+              <span className={`text-[9px] font-bold uppercase px-2 py-0.5 rounded border ${stock.engine.includes('Gemini') ? 'bg-indigo-500/20 text-indigo-300 border-indigo-500/30' : 'bg-slate-800 text-slate-300 border-slate-700'}`}>
+                {stock.engine}
+              </span>
+            )}
+            <span className="text-[11px] text-slate-400 leading-snug">
+              {hasAI ? 'Includes Future Potential (20%) & Governance (20%).' : 'Awaiting LLM multi-pillar synthesis.'}
+            </span>
           </div>
         </div>
       </div>
 
-      {/* Percentile Rank Banner */}
-      <div className="z-10 pt-3 border-t border-slate-800/60 flex items-center justify-between text-xs text-slate-400">
-        <span className="flex items-center gap-1.5">
-          <TrendingUp className="w-3.5 h-3.5 text-emerald-400" />
-          Outperforms <strong className="text-slate-200">89%</strong> of sector peers
-        </span>
-        <span className="text-[11px] text-slate-500">Updated Real-Time</span>
+      {/* Real Fundamental Sub-Pillars */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-4 z-10">
+        {/* Capital Efficiency */}
+        <div className="flex items-center justify-between p-2.5 rounded-xl bg-slate-900/50 border border-slate-800/80">
+          <div className="flex items-center gap-2">
+            <div className="p-1.5 rounded-lg bg-emerald-500/10 text-emerald-400">
+              <TrendingUp className="w-4 h-4" />
+            </div>
+            <div>
+              <div className="text-[11px] text-slate-400 font-medium">Capital Efficiency</div>
+              <div className="text-xs font-bold text-slate-200">
+                {stock?.roe != null && stock.roe !== 'N/A' ? `ROE ${stock.roe}` : 'ROE N/A'}
+                {stock?.roce != null && stock.roce !== 'N/A' && (
+                  <span className="text-[11px] font-normal text-slate-400 ml-1.5">· ROCE {stock.roce}</span>
+                )}
+              </div>
+            </div>
+          </div>
+          <span className="text-[10px] font-semibold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">Active</span>
+        </div>
+
+        {/* Solvency & Valuation */}
+        <div className="flex items-center justify-between p-2.5 rounded-xl bg-slate-900/50 border border-slate-800/80">
+          <div className="flex items-center gap-2">
+            <div className="p-1.5 rounded-lg bg-blue-500/10 text-blue-400">
+              <ShieldCheck className="w-4 h-4" />
+            </div>
+            <div>
+              <div className="text-[11px] text-slate-400 font-medium">Solvency & Valuation</div>
+              <div className="text-xs font-bold text-slate-200">
+                {stock?.debtToEquity != null ? `D/E ${stock.debtToEquity}` : 'D/E N/A'}
+                {stock?.peRatio ? (
+                  <span className="text-[11px] font-normal text-slate-400 ml-1.5">{`· P/E ${stock.peRatio}x`}</span>
+                ) : null}
+              </div>
+            </div>
+          </div>
+          <span className="text-[10px] font-semibold text-blue-400 bg-blue-500/10 px-2 py-0.5 rounded border border-blue-500/20">Live</span>
+        </div>
       </div>
     </div>
   );

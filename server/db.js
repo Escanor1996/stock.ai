@@ -78,15 +78,23 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_historical_date ON historical_prices(ticker, date);
   CREATE INDEX IF NOT EXISTS idx_quarterly_ticker ON quarterly_financials(ticker);
   CREATE TABLE IF NOT EXISTS ai_analysis (
-    ticker      TEXT PRIMARY KEY,
-    score       INTEGER,
-    verdict     TEXT,
-    bull_points TEXT,
-    bear_points TEXT,
-    engine      TEXT,
-    updated_at  INTEGER NOT NULL DEFAULT 0
+    ticker           TEXT PRIMARY KEY,
+    score            INTEGER,
+    verdict          TEXT,
+    bull_points      TEXT,
+    bear_points      TEXT,
+    future_points    TEXT,
+    parameter_scores TEXT,
+    governance_notes TEXT,
+    engine           TEXT,
+    updated_at       INTEGER NOT NULL DEFAULT 0
   );
 `);
+
+// Safe migrations for new columns in ai_analysis
+try { db.exec("ALTER TABLE ai_analysis ADD COLUMN future_points TEXT;"); } catch (_) {}
+try { db.exec("ALTER TABLE ai_analysis ADD COLUMN parameter_scores TEXT;"); } catch (_) {}
+try { db.exec("ALTER TABLE ai_analysis ADD COLUMN governance_notes TEXT;"); } catch (_) {}
 
 // ── Prepared Statements ─────────────────────────────────────────────────────
 
@@ -174,15 +182,18 @@ const stmts = {
     LIMIT 20
   `),
   upsertAIAnalysis: db.prepare(`
-    INSERT INTO ai_analysis (ticker, score, verdict, bull_points, bear_points, engine, updated_at)
-    VALUES (@ticker, @score, @verdict, @bull_points, @bear_points, @engine, @updated_at)
+    INSERT INTO ai_analysis (ticker, score, verdict, bull_points, bear_points, future_points, parameter_scores, governance_notes, engine, updated_at)
+    VALUES (@ticker, @score, @verdict, @bull_points, @bear_points, @future_points, @parameter_scores, @governance_notes, @engine, @updated_at)
     ON CONFLICT(ticker) DO UPDATE SET
-      score       = @score,
-      verdict     = @verdict,
-      bull_points = @bull_points,
-      bear_points = @bear_points,
-      engine      = @engine,
-      updated_at  = @updated_at
+      score            = @score,
+      verdict          = @verdict,
+      bull_points      = @bull_points,
+      bear_points      = @bear_points,
+      future_points    = @future_points,
+      parameter_scores = @parameter_scores,
+      governance_notes = @governance_notes,
+      engine           = @engine,
+      updated_at       = @updated_at
   `),
 
   getAIAnalysis: db.prepare('SELECT * FROM ai_analysis WHERE ticker = ?'),
@@ -225,6 +236,9 @@ export function upsertAIAnalysis(data) {
     verdict: data.verdict,
     bull_points: JSON.stringify(data.bullPoints || []),
     bear_points: JSON.stringify(data.bearPoints || []),
+    future_points: JSON.stringify(data.futurePoints || []),
+    parameter_scores: JSON.stringify(data.parameterScores || {}),
+    governance_notes: data.governanceNotes || '',
     engine: data.engine || 'stock.ai Algorithm',
     updated_at: data.updated_at || Date.now(),
   });
@@ -239,6 +253,9 @@ export function getAIAnalysis(ticker) {
     verdict: row.verdict,
     bullPoints: JSON.parse(row.bull_points || '[]'),
     bearPoints: JSON.parse(row.bear_points || '[]'),
+    futurePoints: JSON.parse(row.future_points || '[]'),
+    parameterScores: JSON.parse(row.parameter_scores || '{}'),
+    governanceNotes: row.governance_notes || '',
     engine: row.engine,
     updated_at: row.updated_at,
   };

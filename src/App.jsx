@@ -12,6 +12,7 @@ import {
   Building2,
   Zap,
   RotateCw,
+  Compass,
   ArrowUpRight,
   ArrowDownRight,
   ExternalLink,
@@ -112,15 +113,26 @@ export default function App() {
       const aiData = await fetchAIAnalysis(currentSymbol, true);
       setCurrentStock(prev => ({
         ...prev,
+        hasAIAnalysis: true,
+        aiScore: aiData.score,
+        aiCategory: aiData.score >= 80 ? 'Exceptional' : aiData.score >= 60 ? 'Strong' : 'Needs Attention',
         score: aiData.score,
         scoreCategory: aiData.score >= 80 ? 'Exceptional' : aiData.score >= 60 ? 'Strong' : 'Needs Attention',
-        kavachScore: aiData.score,
-        walkTheTalkScore: aiData.score,
         aiVerdict: aiData.verdict,
         bullPoints: aiData.bullPoints || [],
         bearPoints: aiData.bearPoints || [],
+        futurePoints: aiData.futurePoints || [],
+        parameterScores: aiData.parameterScores || {},
+        governanceNotes: aiData.governanceNotes || '',
         engine: aiData.engine,
-        hasAIAnalysis: true,
+        radarScores: aiData.parameterScores ? [
+          { category: 'Capital Efficiency', score: aiData.parameterScores.capitalEfficiency ?? 50 },
+          { category: 'Growth Momentum', score: aiData.parameterScores.growth ?? 50 },
+          { category: 'Solvency & Health', score: aiData.parameterScores.solvency ?? 50 },
+          { category: 'Valuation Safety', score: aiData.parameterScores.valuation ?? 50 },
+          { category: 'Corp Governance', score: aiData.parameterScores.corporateGovernance ?? 75 },
+          { category: 'Future Potential', score: aiData.parameterScores.futurePotential ?? 75 },
+        ] : prev.radarScores
       }));
     } catch (err) {
       console.error("AI fetch failed:", err);
@@ -343,9 +355,9 @@ export default function App() {
             {/* Top Grid: 360° Gauge (Left) + 6-Axis Spider Radar (Right) */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               <ScoreGauge
-                score={currentStock.score}
-                category={currentStock.scoreCategory}
                 stock={currentStock}
+                onTriggerAI={handleGenerateAI}
+                isAILoading={isAILoading}
               />
               <RadarChartComponent data={currentStock.radarScores} />
             </div>
@@ -383,8 +395,17 @@ export default function App() {
                   </span>
                 )}
               </p>
+              {currentStock.governanceNotes && (
+                <div className="bg-indigo-950/20 p-3.5 rounded-xl border border-indigo-500/20 flex items-start gap-2.5 text-xs text-indigo-200">
+                  <ShieldCheck className="w-4 h-4 text-indigo-400 shrink-0 mt-0.5" />
+                  <div>
+                    <span className="font-bold text-indigo-300 mr-1.5">Corporate Governance:</span>
+                    <span>{currentStock.governanceNotes}</span>
+                  </div>
+                </div>
+              )}
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-2">
                 {/* Bull Points */}
                 <div className="bg-emerald-950/20 p-4 rounded-xl border border-emerald-500/20 space-y-2">
                   <h4 className="text-xs font-bold text-emerald-400 uppercase tracking-wider flex items-center gap-1.5">
@@ -419,6 +440,25 @@ export default function App() {
                       ))
                     ) : (
                       <li className="text-slate-500 italic">Click "Generate AI Analysis" to compute risk factors.</li>
+                    )}
+                  </ul>
+                </div>
+
+                {/* Future Potential Points */}
+                <div className="bg-cyan-950/20 p-4 rounded-xl border border-cyan-500/20 space-y-2">
+                  <h4 className="text-xs font-bold text-cyan-400 uppercase tracking-wider flex items-center gap-1.5">
+                    <Compass className="w-4 h-4" /> Future Potential & Runway
+                  </h4>
+                  <ul className="space-y-1.5 text-xs text-slate-300">
+                    {currentStock.futurePoints && currentStock.futurePoints.length > 0 ? (
+                      currentStock.futurePoints.map((pt, idx) => (
+                        <li key={idx} className="flex items-start gap-2">
+                          <span className="text-cyan-400 font-bold">•</span>
+                          <span>{pt}</span>
+                        </li>
+                      ))
+                    ) : (
+                      <li className="text-slate-500 italic">Click "Generate AI Analysis" to extract secular growth runway.</li>
                     )}
                   </ul>
                 </div>

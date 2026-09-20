@@ -45,23 +45,43 @@ export function getSavedAIAnalysis(ticker) {
 
 async function callGeminiAPI(stock, quote, fund, quarters) {
   const prompt = `
-    You are a professional equity research analyst. Analyze this stock data and return a JSON object exactly matching this structure, with no markdown formatting or extra text:
-    {
-      "score": <0-100 integer based on overall health>,
-      "verdict": "<2-sentence summary of the company's financial standing and valuation>",
-      "bullPoints": ["<point 1>", "<point 2>", "<point 3>"],
-      "bearPoints": ["<point 1>", "<point 2>"]
-    }
+    You are a senior institutional equity research analyst. Conduct a thorough 360° equity analysis of ${stock.name} (${stock.ticker}) in the ${stock.sector || 'Indian equity'} sector.
+    
+    Financial Data:
+    - Company: ${stock.name} (${stock.ticker})
+    - Sector: ${stock.sector || 'N/A'}, Industry: ${stock.industry || 'N/A'}
+    - Current Price: ₹${quote.price} (52W High: ₹${fund.high_52w || 'N/A'}, 52W Low: ₹${fund.low_52w || 'N/A'})
+    - Valuation: P/E: ${fund.pe_ratio || 'N/A'}x, P/B: ${fund.pb_ratio || 'N/A'}x, EV/EBITDA: ${fund.ev_ebitda || 'N/A'}x
+    - Profitability: ROE: ${fund.roe || 'N/A'}%, ROCE: ${fund.roce || 'N/A'}%
+    - Leverage: Debt to Equity: ${fund.debt_to_equity != null ? fund.debt_to_equity : 'N/A'}
+    - Quarterly Revenue & Profit History: ${quarters.slice(-4).map(q => `${q.quarter}: Rev ₹${q.revenue} Cr (YoY ${q.rev_growth_yoy || 0}%), PAT ₹${q.pat} Cr`).join('; ')}
 
-    Data:
-    Name: ${stock.name} (${stock.ticker})
-    Sector: ${stock.sector}
-    Price: ${quote.price}
-    P/E Ratio: ${fund.pe_ratio}
-    ROE: ${fund.roe}%
-    ROCE: ${fund.roce}%
-    Debt to Equity: ${fund.debt_to_equity}
-    Recent Revenue Trend: ${quarters.slice(-4).map(q => `${q.quarter}: ${q.revenue}`).join(', ')}
+    Return a JSON object strictly matching this schema with no markdown formatting or commentary:
+    {
+      "score": <0-100 weighted score: Capital Efficiency (15%), Growth (15%), Solvency (15%), Valuation (15%), Corporate Governance (20%), Future Potential (20%)>,
+      "verdict": "<2-sentence sharp synthesis of investment thesis and risk-reward profile>",
+      "parameterScores": {
+        "capitalEfficiency": <0-100>,
+        "growth": <0-100>,
+        "solvency": <0-100>,
+        "valuation": <0-100>,
+        "corporateGovernance": <0-100 score on promoter integrity, board quality, alignment, and disclosure standards>,
+        "futurePotential": <0-100 score on sector runway, Indian Capex/TAM tailwinds, moat, and capacity scaling>
+      },
+      "governanceNotes": "<1-2 sentences on management credibility, promoter pledging, institutional holding, and accounting transparency>",
+      "bullPoints": [
+        "<Key operational or margin catalyst 1>",
+        "<Key operational or margin catalyst 2>"
+      ],
+      "bearPoints": [
+        "<Key financial risk or near-term headwind 1>",
+        "<Key financial risk or near-term headwind 2>"
+      ],
+      "futurePoints": [
+        "<Secular industry trend, market expansion, or technological transition catalyst 1>",
+        "<Capacity expansion, TAM tailwind, or order book runway 2>"
+      ]
+    }
   `;
 
   const response = await fetch('https://generativelanguage.googleapis.com/v1beta/interactions', {
@@ -83,11 +103,10 @@ async function callGeminiAPI(stock, quote, fund, quarters) {
   }
   const data = await response.json();
   
-  // Extract text from the new Interactions API response structure
+  // Extract text from the Interactions API response structure
   const outputStep = data.steps.find(s => s.type === 'model_output');
   const rawText = outputStep.content[0].text;
   
-  // Clean up any potential markdown formatting the model might add (like ```json)
   const cleanText = rawText.replace(/```json/g, '').replace(/```/g, '').trim();
   const result = JSON.parse(cleanText);
   result.engine = 'Gemini 3.5 Flash';
@@ -95,49 +114,133 @@ async function callGeminiAPI(stock, quote, fund, quarters) {
 }
 
 function generateHeuristicAnalysis(stock, quote, fund, quarters) {
-  let score = 50;
   const bullPoints = [];
   const bearPoints = [];
-  
-  // Profitability
-  if (fund.roe > 20) { score += 15; bullPoints.push(`Exceptional Return on Equity (ROE) of ${fund.roe}%, indicating highly efficient capital allocation.`); }
-  else if (fund.roe > 12) { score += 5; bullPoints.push(`Solid ROE of ${fund.roe}%, showing stable profitability.`); }
-  else if (fund.roe < 5 && fund.roe !== null) { score -= 10; bearPoints.push(`Poor ROE (${fund.roe}%), suggesting inefficient use of shareholder equity.`); }
+  const futurePoints = [];
 
-  if (fund.roce > 20) { score += 10; bullPoints.push(`Strong ROCE (${fund.roce}%), proving the core business generates excellent operational returns.`); }
+  // 1. Capital Efficiency (15%)
+  let capEff = 50;
+  if (fund.roe > 20) {
+    capEff = 90;
+    bullPoints.push(`Exceptional Return on Equity (ROE: ${fund.roe}%), indicating superior capital productivity.`);
+  } else if (fund.roe > 12) {
+    capEff = 75;
+    bullPoints.push(`Solid ROE (${fund.roe}%), demonstrating steady shareholder value generation.`);
+  } else if (fund.roe < 5 && fund.roe !== null) {
+    capEff = 30;
+    bearPoints.push(`Depressed ROE (${fund.roe}%), reflecting suboptimal asset utilization.`);
+  }
+  if (fund.roce > 20) {
+    capEff = Math.min(100, capEff + 10);
+    bullPoints.push(`Strong ROCE (${fund.roce}%), proving operational capital efficiency.`);
+  }
 
-  // Valuation
-  if (fund.pe_ratio > 0 && fund.pe_ratio < 15) { score += 15; bullPoints.push(`Highly attractive valuation with a P/E ratio of ${fund.pe_ratio}x, trading at a discount to broader markets.`); }
-  else if (fund.pe_ratio > 50) { score -= 15; bearPoints.push(`Stretched valuation with a high P/E ratio of ${fund.pe_ratio}x, pricing in significant future growth.`); }
-  
-  // Leverage
-  if (fund.debt_to_equity < 0.2) { score += 10; bullPoints.push(`Virtually debt-free balance sheet (D/E: ${fund.debt_to_equity}), minimizing financial risk.`); }
-  else if (fund.debt_to_equity > 1.5) { score -= 15; bearPoints.push(`Highly leveraged balance sheet (D/E: ${fund.debt_to_equity}), posing risks in high-interest rate environments.`); }
-
-  // Growth (Last 4 quarters)
+  // 2. Growth Momentum (15%)
+  let growth = 50;
   const recentQ = quarters.slice(-4);
   if (recentQ.length >= 2) {
     const latest = recentQ[recentQ.length - 1];
-    if (latest.rev_growth_yoy > 15) { score += 10; bullPoints.push(`Robust top-line momentum, accelerating revenue by ${latest.rev_growth_yoy}% YoY in the latest quarter.`); }
-    else if (latest.rev_growth_yoy < 0) { score -= 10; bearPoints.push(`Revenue contracted by ${latest.rev_growth_yoy}% YoY, indicating demand headwinds or cyclical down-turn.`); }
+    if (latest.rev_growth_yoy > 20) {
+      growth = 90;
+      bullPoints.push(`Top-line momentum with revenue expanding by ${latest.rev_growth_yoy}% YoY in recent quarter.`);
+    } else if (latest.rev_growth_yoy > 10) {
+      growth = 75;
+      bullPoints.push(`Healthy revenue expansion (+${latest.rev_growth_yoy}% YoY).`);
+    } else if (latest.rev_growth_yoy < 0) {
+      growth = 30;
+      bearPoints.push(`Sales contraction of ${latest.rev_growth_yoy}% YoY flags cyclical demand friction.`);
+    }
   }
 
-  // Normalize
-  score = Math.max(10, Math.min(99, Math.round(score)));
+  // 3. Solvency & Balance Sheet (15%)
+  let solvency = 60;
+  if (fund.debt_to_equity != null) {
+    if (fund.debt_to_equity < 0.2) {
+      solvency = 95;
+      bullPoints.push(`Virtually unleveraged balance sheet (D/E: ${fund.debt_to_equity}), insulating earnings against interest rate cycles.`);
+    } else if (fund.debt_to_equity > 1.5) {
+      solvency = 30;
+      bearPoints.push(`Elevated debt levels (D/E: ${fund.debt_to_equity}) limit balance sheet flexibility during downcycles.`);
+    } else {
+      solvency = 70;
+    }
+  }
+
+  // 4. Valuation & Margin of Safety (15%)
+  let valuation = 50;
+  if (fund.pe_ratio > 0 && fund.pe_ratio < 18) {
+    valuation = 85;
+    bullPoints.push(`Attractively valued at ${fund.pe_ratio}x P/E, offering defensive margin of safety.`);
+  } else if (fund.pe_ratio > 50) {
+    valuation = 35;
+    bearPoints.push(`Stretched valuation (${fund.pe_ratio}x P/E) prices in flawless execution with little margin of safety.`);
+  } else {
+    valuation = 60;
+  }
+
+  // 5. Corporate Governance & Integrity (20%)
+  let corporateGovernance = 80;
+  let governanceNotes = "Board governance and compliance disclosures adhere to standard regulatory guidelines.";
+  if (solvency >= 80 && capEff >= 70) {
+    corporateGovernance = 88;
+    governanceNotes = "High capital allocation discipline, transparent reporting standards, and low balance sheet encumbrance.";
+  } else if (solvency < 40) {
+    corporateGovernance = 55;
+    governanceNotes = "Leverage accumulation warrants monitoring of cash flow fungibility and debt servicing commitments.";
+  }
+
+  // 6. Future Potential & Industry Tailwinds (20%)
+  let futurePotential = 75;
+  const sector = (stock.sector || '').toLowerCase();
+  if (sector.includes('tech') || sector.includes('auto') || sector.includes('energy') || sector.includes('capital') || sector.includes('industrial')) {
+    futurePotential = 85;
+    futurePoints.push(`Multi-year secular tailwinds driven by domestic Indian Capex expansion and industrial localization.`);
+    futurePoints.push(`Capacity scaling positioning company for expanding operating leverage as broader sector TAM grows.`);
+  } else {
+    futurePotential = 70;
+    futurePoints.push(`Steady market penetration with opportunities to gain market share from unorganized industry peers.`);
+    futurePoints.push(`Operational efficiency gains expected to support sustained cash flow generation.`);
+  }
+
+  // Weighted Total Score (0-100)
+  const weightedScore = Math.round(
+    capEff * 0.15 +
+    growth * 0.15 +
+    solvency * 0.15 +
+    valuation * 0.15 +
+    corporateGovernance * 0.20 +
+    futurePotential * 0.20
+  );
+  const score = Math.max(10, Math.min(99, weightedScore));
 
   let verdict = '';
-  if (score >= 80) verdict = `${stock.name} demonstrates outstanding fundamental strength with a pristine balance sheet and excellent capital efficiency. The current valuation profile combined with its operational metrics makes it a top-tier asset in the ${stock.sector || 'market'}.`;
-  else if (score >= 60) verdict = `${stock.name} is a fundamentally stable company with solid execution in its space. While it possesses strong core metrics, investors should weigh its current valuation against near-term macro headwinds.`;
-  else verdict = `${stock.name} is currently facing structural headwinds, reflected in its suboptimal return ratios and leverage metrics. A turnaround or multiple-re-rating is heavily contingent on management execution in upcoming quarters.`;
+  if (score >= 80) {
+    verdict = `${stock.name} demonstrates institutional-grade fundamentals backed by robust capital productivity and secular industry tailwinds. Its strategic moat and clean balance sheet position it for sustained multi-year outperformance.`;
+  } else if (score >= 60) {
+    verdict = `${stock.name} is fundamentally stable with healthy core metrics and steady execution. Investors should balance its growth pipeline against valuation headroom and broader market cyclicality.`;
+  } else {
+    verdict = `${stock.name} faces structural or cyclical operational headwinds, reflected in its current financial return profile. Any multi-year valuation re-rating hinges on management execution and margin stabilization in coming quarters.`;
+  }
 
-  if (bullPoints.length === 0) bullPoints.push('Stable operational history in its respective sector.');
-  if (bearPoints.length === 0) bearPoints.push('Vulnerable to broader macroeconomic shifts and sector rotation.');
+  if (bullPoints.length === 0) bullPoints.push('Established presence in its respective operating segment.');
+  if (bearPoints.length === 0) bearPoints.push('Exposed to general macroeconomic slowdowns and sector rotation.');
+  if (futurePoints.length === 0) futurePoints.push('Long-term market expansion tied to domestic consumption and industrial growth.');
 
   return {
     score,
     verdict,
+    parameterScores: {
+      capitalEfficiency: capEff,
+      growth,
+      solvency,
+      valuation,
+      corporateGovernance,
+      futurePotential
+    },
+    governanceNotes,
     bullPoints,
     bearPoints,
+    futurePoints,
     engine: 'stock.ai Algorithm'
   };
 }
