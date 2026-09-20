@@ -199,7 +199,7 @@ export default function Watchlist({ watchlist, onRemoveFromWatchlist, onAddToWat
                 : 'bg-zinc-900/80 hover:bg-zinc-800 text-zinc-400 border border-zinc-800'
             }`}
           >
-            Price: High $\rightarrow$ Low
+            Price: High → Low
           </button>
 
           <button
@@ -210,7 +210,7 @@ export default function Watchlist({ watchlist, onRemoveFromWatchlist, onAddToWat
                 : 'bg-zinc-900/80 hover:bg-zinc-800 text-zinc-400 border border-zinc-800'
             }`}
           >
-            Price: Low $\rightarrow$ High
+            Price: Low → High
           </button>
 
           <button
