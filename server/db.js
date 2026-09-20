@@ -77,6 +77,15 @@ db.exec(`
 
   CREATE INDEX IF NOT EXISTS idx_historical_date ON historical_prices(ticker, date);
   CREATE INDEX IF NOT EXISTS idx_quarterly_ticker ON quarterly_financials(ticker);
+  CREATE TABLE IF NOT EXISTS ai_analysis (
+    ticker      TEXT PRIMARY KEY,
+    score       INTEGER,
+    verdict     TEXT,
+    bull_points TEXT,
+    bear_points TEXT,
+    engine      TEXT,
+    updated_at  INTEGER NOT NULL DEFAULT 0
+  );
 `);
 
 // ── Prepared Statements ─────────────────────────────────────────────────────
@@ -164,6 +173,19 @@ const stmts = {
     ORDER BY q.market_cap DESC NULLS LAST
     LIMIT 20
   `),
+  upsertAIAnalysis: db.prepare(`
+    INSERT INTO ai_analysis (ticker, score, verdict, bull_points, bear_points, engine, updated_at)
+    VALUES (@ticker, @score, @verdict, @bull_points, @bear_points, @engine, @updated_at)
+    ON CONFLICT(ticker) DO UPDATE SET
+      score       = @score,
+      verdict     = @verdict,
+      bull_points = @bull_points,
+      bear_points = @bear_points,
+      engine      = @engine,
+      updated_at  = @updated_at
+  `),
+
+  getAIAnalysis: db.prepare('SELECT * FROM ai_analysis WHERE ticker = ?'),
 };
 
 // ── Public API ──────────────────────────────────────────────────────────────
@@ -196,6 +218,32 @@ export function getFundamentals(ticker) { return stmts.getFundamentals.get(ticke
 export function getQuarterlies(ticker) { return stmts.getQuarterlies.all(ticker); }
 export function getHistorical(ticker, from, to) { return stmts.getHistorical.all(ticker, from, to); }
 export function searchStocks(query) { return stmts.searchStocks.all({ q: `%${query}%` }); }
+export function upsertAIAnalysis(data) {
+  return stmts.upsertAIAnalysis.run({
+    ticker: data.ticker,
+    score: data.score,
+    verdict: data.verdict,
+    bull_points: JSON.stringify(data.bullPoints || []),
+    bear_points: JSON.stringify(data.bearPoints || []),
+    engine: data.engine || 'EquiSense Algorithm',
+    updated_at: data.updated_at || Date.now(),
+  });
+}
+
+export function getAIAnalysis(ticker) {
+  const row = stmts.getAIAnalysis.get(ticker);
+  if (!row) return null;
+  return {
+    ticker: row.ticker,
+    score: row.score,
+    verdict: row.verdict,
+    bullPoints: JSON.parse(row.bull_points || '[]'),
+    bearPoints: JSON.parse(row.bear_points || '[]'),
+    engine: row.engine,
+    updated_at: row.updated_at,
+  };
+}
+
 
 /** Check if data is stale (older than `maxAgeMs`). */
 export function isStale(updatedAt, maxAgeMs) {

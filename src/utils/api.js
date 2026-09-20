@@ -24,9 +24,9 @@ export async function fetchHistorical(ticker, range = '1y') {
   return response.json();
 }
 
-export async function fetchAIAnalysis(ticker) {
+export async function fetchAIAnalysis(ticker, force = true) {
   const t = ticker.toUpperCase();
-  const response = await fetch(`/api/stock/${encodeURIComponent(t)}/analysis`);
+  const response = await fetch(`/api/stock/${encodeURIComponent(t)}/analysis?refresh=${force}`);
   if (!response.ok) throw new Error('AI analysis failed');
   return response.json();
 }
@@ -82,14 +82,18 @@ function normalizeForUI(data) {
     return Math.max(0, Math.min(100, Math.round(score)));
   };
 
-  const score = computeScore(data);
-
-  const scoreCategory =
-    score >= 80 ? 'Exceptional' :
-    score >= 65 ? 'Strong' :
-    score >= 50 ? 'Moderate' :
+  const baseScore = computeScore(data);
+  const baseScoreCategory =
+    baseScore >= 80 ? 'Exceptional' :
+    baseScore >= 65 ? 'Strong' :
+    baseScore >= 50 ? 'Moderate' :
     'Needs Attention';
 
+  const hasAI = Boolean(data.aiAnalysis && data.aiAnalysis.verdict);
+  const finalScore = hasAI ? data.aiAnalysis.score : baseScore;
+  const finalScoreCategory = hasAI
+    ? (data.aiAnalysis.score >= 80 ? 'Exceptional' : data.aiAnalysis.score >= 60 ? 'Strong' : 'Needs Attention')
+    : baseScoreCategory;
   return {
     symbol: data.symbol,
     yahooSymbol: data.yahooSymbol,
@@ -123,11 +127,10 @@ function normalizeForUI(data) {
     low52: data.low52 || 0,
 
     // Computed score
-    score,
-    scoreCategory,
-    kavachScore: score, // placeholder until real governance data
-    walkTheTalkScore: score,
-
+    score: finalScore,
+    scoreCategory: finalScoreCategory,
+    kavachScore: finalScore, // placeholder until real governance data
+    walkTheTalkScore: finalScore,
     // Radar scores from real data
     radarScores: buildRadarScores(data),
 
@@ -143,11 +146,12 @@ function normalizeForUI(data) {
       beat: true, // no consensus data yet
     })),
 
-    // Placeholder sections (to be replaced with real data later)
-    aiVerdict: "Initializing Fin-LLM...",
-    bullPoints: ["Analyzing fundamentals..."],
-    bearPoints: ["Analyzing fundamentals..."],
-
+    // Persisted AI Analysis section
+    hasAIAnalysis: hasAI,
+    engine: hasAI ? data.aiAnalysis.engine : null,
+    aiVerdict: hasAI ? data.aiAnalysis.verdict : null,
+    bullPoints: hasAI ? (data.aiAnalysis.bullPoints || []) : [],
+    bearPoints: hasAI ? (data.aiAnalysis.bearPoints || []) : [],
 
     concall: {
       latestQuarter: data.quarterlyFinancials?.[data.quarterlyFinancials.length - 1]?.quarter || 'N/A',

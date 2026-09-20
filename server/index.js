@@ -42,9 +42,10 @@ app.get('/api/stock/:ticker/history', async (req, res) => {
 // ── GET /api/stock/:ticker/analysis — AI Verdict
 app.get('/api/stock/:ticker/analysis', async (req, res) => {
   const { ticker } = req.params;
+  const force = req.query.refresh === 'true' || req.query.force === 'true';
   try {
-    const data = await generateAIAnalysis(ticker);
-    console.log('AI Analysis Data:', data);
+    const data = await generateAIAnalysis(ticker, force);
+    console.log(`AI Analysis Data for ${ticker} (force=${force}):`, data?.engine);
     res.json(data);
   } catch (err) {
     console.error(`Error generating AI analysis for ${ticker}:`, err);

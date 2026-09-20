@@ -11,6 +11,7 @@ import {
   Layers,
   Building2,
   Zap,
+  RotateCw,
   ArrowUpRight,
   ArrowDownRight,
   ExternalLink,
@@ -109,15 +110,18 @@ export default function App() {
   const handleGenerateAI = async () => {
     setIsAILoading(true);
     try {
-      const aiData = await fetchAIAnalysis(currentSymbol);
+      const aiData = await fetchAIAnalysis(currentSymbol, true);
       setCurrentStock(prev => ({
         ...prev,
         score: aiData.score,
         scoreCategory: aiData.score >= 80 ? 'Exceptional' : aiData.score >= 60 ? 'Strong' : 'Needs Attention',
+        kavachScore: aiData.score,
+        walkTheTalkScore: aiData.score,
         aiVerdict: aiData.verdict,
-        bullPoints: aiData.bullPoints,
-        bearPoints: aiData.bearPoints,
-        engine: aiData.engine
+        bullPoints: aiData.bullPoints || [],
+        bearPoints: aiData.bearPoints || [],
+        engine: aiData.engine,
+        hasAIAnalysis: true,
       }));
     } catch (err) {
       console.error("AI fetch failed:", err);
@@ -367,13 +371,19 @@ export default function App() {
                 >
                   {isAILoading ? (
                     <><div className="w-4 h-4 border-2 border-slate-100 border-t-transparent rounded-full animate-spin"></div> Analyzing...</>
+                  ) : currentStock.hasAIAnalysis ? (
+                    <><RotateCw className="w-4 h-4" /> Regenerate AI Analysis</>
                   ) : (
                     <><Zap className="w-4 h-4" /> Generate AI Analysis</>
                   )}
                 </button>
               </div>
               <p className="text-xs sm:text-sm text-slate-300 leading-relaxed bg-zinc-900/60 p-4 rounded-xl border border-zinc-800/80">
-                {currentStock.aiVerdict}
+                {currentStock.aiVerdict || (
+                  <span className="text-slate-400 italic">
+                    No AI analysis generated yet for this stock. Click "Generate AI Analysis" above to generate a 360° verdict and fundamental catalysts.
+                  </span>
+                )}
               </p>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2">
@@ -383,12 +393,16 @@ export default function App() {
                     <TrendingUp className="w-4 h-4" /> Key Bullish Catalysts
                   </h4>
                   <ul className="space-y-1.5 text-xs text-slate-300">
-                    {currentStock.bullPoints.map((pt, idx) => (
-                      <li key={idx} className="flex items-start gap-2">
-                        <span className="text-emerald-400 font-bold">•</span>
-                        <span>{pt}</span>
-                      </li>
-                    ))}
+                    {currentStock.bullPoints && currentStock.bullPoints.length > 0 ? (
+                      currentStock.bullPoints.map((pt, idx) => (
+                        <li key={idx} className="flex items-start gap-2">
+                          <span className="text-emerald-400 font-bold">•</span>
+                          <span>{pt}</span>
+                        </li>
+                      ))
+                    ) : (
+                      <li className="text-slate-500 italic">Click "Generate AI Analysis" to extract key catalysts.</li>
+                    )}
                   </ul>
                 </div>
 
@@ -398,12 +412,16 @@ export default function App() {
                     <ArrowDownRight className="w-4 h-4" /> Risk Factors & Cautionary Notes
                   </h4>
                   <ul className="space-y-1.5 text-xs text-slate-300">
-                    {currentStock.bearPoints.map((pt, idx) => (
-                      <li key={idx} className="flex items-start gap-2">
-                        <span className="text-rose-400 font-bold">•</span>
-                        <span>{pt}</span>
-                      </li>
-                    ))}
+                    {currentStock.bearPoints && currentStock.bearPoints.length > 0 ? (
+                      currentStock.bearPoints.map((pt, idx) => (
+                        <li key={idx} className="flex items-start gap-2">
+                          <span className="text-rose-400 font-bold">•</span>
+                          <span>{pt}</span>
+                        </li>
+                      ))
+                    ) : (
+                      <li className="text-slate-500 italic">Click "Generate AI Analysis" to compute risk factors.</li>
+                    )}
                   </ul>
                 </div>
               </div>

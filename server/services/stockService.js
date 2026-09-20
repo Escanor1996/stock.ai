@@ -111,7 +111,7 @@ function assembleResponse(ticker) {
   const quote = db.getQuote(ticker) || {};
   const fund = db.getFundamentals(ticker) || {};
   const quarters = db.getQuarterlies(ticker);
-
+  const aiAnalysis = db.getAIAnalysis(ticker);
   return {
     // Identity
     symbol: stock.ticker,
@@ -149,6 +149,8 @@ function assembleResponse(ticker) {
 
     // Metadata
     lastUpdated: quote.updated_at || stock.updated_at,
+    // Saved AI Analysis (persisted)
+    aiAnalysis,
   };
 }
 

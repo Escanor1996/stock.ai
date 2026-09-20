@@ -1,6 +1,11 @@
 import * as db from '../db.js';
 
-export async function generateAIAnalysis(ticker) {
+export async function generateAIAnalysis(ticker, force = false) {
+  if (!force) {
+    const cached = db.getAIAnalysis(ticker);
+    if (cached) return cached;
+  }
+
   const stock = db.getStock(ticker);
   const quote = db.getQuote(ticker);
   const fund = db.getFundamentals(ticker);
@@ -10,17 +15,32 @@ export async function generateAIAnalysis(ticker) {
     throw new Error('Data missing for AI analysis');
   }
 
+  let result = null;
   // If GEMINI_API_KEY is provided, use it
   if (process.env.GEMINI_API_KEY) {
     try {
-      return await callGeminiAPI(stock, quote, fund, quarters);
+      result = await callGeminiAPI(stock, quote, fund, quarters);
     } catch (e) {
       console.error('Gemini API failed, falling back to local heuristic engine', e);
     }
   }
 
-  // Local Heuristic "AI" Fallback (Generates dynamic human-like text based on thresholds)
-  return generateHeuristicAnalysis(stock, quote, fund, quarters);
+  // Local Heuristic "AI" Fallback
+  if (!result) {
+    result = generateHeuristicAnalysis(stock, quote, fund, quarters);
+  }
+
+  // Persist the generated analysis to the database
+  db.upsertAIAnalysis({
+    ticker,
+    ...result
+  });
+
+  return result;
+}
+
+export function getSavedAIAnalysis(ticker) {
+  return db.getAIAnalysis(ticker);
 }
 
 async function callGeminiAPI(stock, quote, fund, quarters) {
