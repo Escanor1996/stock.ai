@@ -156,68 +156,70 @@ export default function App() {
   const popularTickers = ["E2E", "TMCV", "TATAMOTORS", "INFY", "ZOMATO", "SBIN", "AAPL", "NVDA", "NETWEB", "RELIANCE"];
 
   return (
-    <div className="min-h-screen bg-black text-slate-100 flex flex-col selection:bg-emerald-500 selection:text-white">
+    <div className="min-h-screen bg-background text-foreground flex flex-col selection:bg-success selection:text-background relative" style={{ backgroundColor: '#fffcf0', color: '#100f0f' }}>
+      {/* Ambient warm radial glow at top matching Wealthfolio */}
+      <div className="fixed inset-0 pointer-events-none bg-[radial-gradient(ellipse_80%_40%_at_50%_-15%,hsl(var(--card)/0.8),transparent)]" />
+
       {/* Global Navbar */}
-      <header className="sticky top-0 z-40 bg-zinc-950/95 backdrop-blur-md border-b border-zinc-800/80 px-4 lg:px-8 py-2.5 flex items-center justify-between gap-4">
+      <header className="sticky top-0 z-40 bg-background/85 backdrop-blur-xl border-b border-border/40 px-4 lg:px-8 py-2.5 flex items-center justify-between gap-4">
         {/* Brand Logo */}
         <div className="flex items-center gap-3 cursor-pointer shrink-0" onClick={() => setActiveTab('watchlist')}>
-          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-emerald-500 to-blue-600 flex items-center justify-center text-slate-950 font-black shadow-lg shadow-emerald-500/25">
-            <Zap className="w-6 h-6 fill-slate-950" />
+          <div className="w-9 h-9 rounded-xl bg-card border border-border/60 flex items-center justify-center text-foreground font-black shadow-xs">
+            <Zap className="w-4 h-4 text-foreground" />
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <span className="text-lg font-black tracking-tight bg-gradient-to-r from-white via-slate-100 to-emerald-300 bg-clip-text text-transparent font-mono">
-                stock<span className="text-emerald-400">.ai</span>
+              <span className="text-base font-serif font-bold tracking-tight text-foreground">
+                stock<span className="text-muted-foreground font-normal">.ai</span>
               </span>
-              <span className="text-[10px] font-extrabold uppercase px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 tracking-wider">
-                360° AI
+              <span className="text-[10px] font-semibold uppercase px-2 py-0.5 rounded-full bg-muted text-muted-foreground border border-border/50 tracking-wider">
+                v1.1
               </span>
             </div>
-            <span className="text-[10px] text-slate-400 font-medium">Enterprise Equity Intelligence</span>
+            <span className="text-[10px] text-muted-foreground font-medium">Enterprise Equity Intelligence</span>
           </div>
         </div>
 
-        {/* Global Search Center Bar — utilizes full center space properly */}
+        {/* Global Search Center Bar */}
         <div className="flex-1 max-w-2xl mx-2 md:mx-6">
           <button
             onClick={() => setIsSearchModalOpen(true)}
-            className="w-full flex items-center justify-between px-3.5 py-2 text-xs bg-zinc-900/90 hover:bg-zinc-900 border border-zinc-800 hover:border-emerald-500/50 rounded-xl text-slate-300 transition-all shadow-inner group cursor-pointer"
+            className="w-full flex items-center justify-between px-3.5 py-1.5 text-xs bg-card hover:bg-card/80 border border-border/60 hover:border-border rounded-full text-foreground transition-all shadow-xs group cursor-pointer"
           >
             <div className="flex items-center gap-2.5 truncate">
-              <Search className="w-4 h-4 text-emerald-400 group-hover:text-emerald-300 shrink-0" />
-              <span className="text-zinc-400 font-medium truncate">Search stocks or tickers (e.g. TMCV, E2E, INFY, Reliance, Zomato)...</span>
+              <Search className="w-3.5 h-3.5 text-muted-foreground group-hover:text-foreground shrink-0" />
+              <span className="text-muted-foreground font-medium truncate">Search stocks or tickers (e.g. TMCV, E2E, INFY, Reliance, Zomato)...</span>
             </div>
-            <kbd className="hidden sm:inline-block text-[10px] font-mono font-bold uppercase bg-zinc-800 text-zinc-400 px-2 py-0.5 rounded border border-zinc-700 shrink-0 ml-2">
+            <kbd className="hidden sm:inline-block text-[10px] font-mono font-bold uppercase bg-muted text-muted-foreground px-2 py-0.5 rounded-full border border-border/60 shrink-0 ml-2">
               Ctrl + K
             </kbd>
           </button>
         </div>
 
-        {/* Right Watchlist Quick Counter */}
         {/* Right Navigation Quick Buttons */}
-        <div className="flex items-center gap-2.5 shrink-0">
+        <div className="flex items-center gap-2 shrink-0">
           <button
             onClick={() => setActiveTab('portfolio')}
-            className={`px-3.5 py-2 rounded-xl text-xs font-bold flex items-center gap-2 border transition-all ${
+            className={`px-3 py-1.5 rounded-full text-xs font-semibold flex items-center gap-1.5 border transition-all ${
               activeTab === 'portfolio'
-                ? 'bg-emerald-500 text-slate-950 border-emerald-500 shadow-md shadow-emerald-500/20'
-                : 'bg-zinc-900 text-zinc-300 border-zinc-800 hover:border-zinc-700 hover:text-white'
+                ? 'bg-card text-foreground border-border/80 shadow-xs'
+                : 'bg-muted/60 text-muted-foreground border-border/40 hover:text-foreground hover:bg-muted'
             }`}
           >
-            <Briefcase className="w-4 h-4 text-cyan-400" />
+            <Briefcase className="w-3.5 h-3.5" />
             <span className="hidden sm:inline">Portfolio</span>
           </button>
           <button
             onClick={() => setActiveTab('watchlist')}
-            className={`px-3.5 py-2 rounded-xl text-xs font-bold flex items-center gap-2 border transition-all ${
+            className={`px-3 py-1.5 rounded-full text-xs font-semibold flex items-center gap-1.5 border transition-all ${
               activeTab === 'watchlist'
-                ? 'bg-emerald-500 text-slate-950 border-emerald-500 shadow-md shadow-emerald-500/20'
-                : 'bg-zinc-900 text-zinc-300 border-zinc-800 hover:border-zinc-700 hover:text-white'
+                ? 'bg-card text-foreground border-border/80 shadow-xs'
+                : 'bg-muted/60 text-muted-foreground border-border/40 hover:text-foreground hover:bg-muted'
             }`}
           >
-            <Star className="w-4 h-4 text-amber-400 fill-amber-400" />
+            <Star className="w-3.5 h-3.5" />
             <span className="hidden sm:inline">Watchlist</span>
-            <span className="px-1.5 py-0.2 rounded-full bg-black/40 text-[10px] font-mono font-bold">
+            <span className="px-1.5 py-0.2 rounded-full bg-card text-[10px] font-mono font-semibold">
               {watchlist.length}
             </span>
           </button>
@@ -225,56 +227,59 @@ export default function App() {
       </header>
 
       {/* Main Container */}
-      <main className="flex-1 max-w-7xl w-full mx-auto px-4 lg:px-8 py-6 space-y-6">
+      <main className="flex-1 max-w-7xl w-full mx-auto px-4 lg:px-8 py-6 space-y-6 relative z-10">
         {/* Navigation Tabs Bar & Trending Tickers */}
-        <div className="flex items-center justify-between border-b border-zinc-800/80 pb-3 gap-4 overflow-x-auto no-scrollbar">
-          <div className="flex items-center gap-2 min-w-max">
+        <div className="flex items-center justify-between border-b border-border/40 pb-3 gap-4 overflow-x-auto no-scrollbar">
+          <div className="inline-flex items-center gap-1 bg-muted/60 p-1 rounded-full border border-border/40 shrink-0">
             <button
-              onClick={() => setActiveTab('watchlist')}
-              className={`px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-2 transition-all ${
-                activeTab === 'watchlist'
-                  ? 'bg-emerald-500 text-slate-950 shadow-md shadow-emerald-500/20'
-                  : 'text-slate-400 hover:text-slate-200 hover:bg-zinc-900/60'
+              onClick={() => setActiveTab('portfolio')}
+              className={`px-3.5 py-1.5 rounded-full text-xs font-semibold transition-all duration-200 flex items-center gap-1.5 ${
+                activeTab === 'portfolio'
+                  ? 'bg-card text-foreground shadow-xs'
+                  : 'text-muted-foreground hover:text-foreground'
               }`}
             >
-              <Star className="w-4 h-4" /> Watchlist ({watchlist.length})
+              <Briefcase className="w-3.5 h-3.5" />
+              <span>Portfolio</span>
             </button>
 
             <button
-              onClick={() => setActiveTab('portfolio')}
-              className={`px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-2 transition-all ${
-                activeTab === 'portfolio'
-                  ? 'bg-emerald-500 text-slate-950 shadow-md shadow-emerald-500/20'
-                  : 'text-slate-400 hover:text-slate-200 hover:bg-zinc-900/60'
+              onClick={() => setActiveTab('watchlist')}
+              className={`px-3.5 py-1.5 rounded-full text-xs font-semibold transition-all duration-200 flex items-center gap-1.5 ${
+                activeTab === 'watchlist'
+                  ? 'bg-card text-foreground shadow-xs'
+                  : 'text-muted-foreground hover:text-foreground'
               }`}
             >
-              <Briefcase className="w-4 h-4" /> Portfolio Exporter
+              <Star className="w-3.5 h-3.5" />
+              <span>Watchlist ({watchlist.length})</span>
             </button>
 
             <button
               onClick={() => setActiveTab('analysis')}
-              className={`px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-2 transition-all ${
+              className={`px-3.5 py-1.5 rounded-full text-xs font-semibold transition-all duration-200 flex items-center gap-1.5 ${
                 activeTab === 'analysis'
-                  ? 'bg-emerald-500 text-slate-950 shadow-md shadow-emerald-500/20'
-                  : 'text-slate-400 hover:text-slate-200 hover:bg-zinc-900/60'
+                  ? 'bg-card text-foreground shadow-xs'
+                  : 'text-muted-foreground hover:text-foreground'
               }`}
             >
-              <Activity className="w-4 h-4" /> 360° Deep Dive
+              <Activity className="w-3.5 h-3.5" />
+              <span>360° Deep Dive</span>
             </button>
           </div>
 
-          {/* Quick Trending Tickers Bar — utilizes horizontal space */}
-          <div className="hidden md:flex items-center gap-2 text-xs text-zinc-400 min-w-max">
-            <span className="text-[11px] font-semibold text-zinc-500 uppercase tracking-wider">Trending:</span>
+          {/* Quick Trending Tickers Bar */}
+          <div className="hidden md:flex items-center gap-2 text-xs text-muted-foreground min-w-max">
+            <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">Trending:</span>
             <div className="flex items-center gap-1.5">
               {popularTickers.slice(0, 6).map((sym) => (
                 <button
                   key={sym}
                   onClick={() => handleSelectStock(sym)}
-                  className={`px-2.5 py-1 rounded-lg font-mono text-[11px] font-bold border transition-all ${
+                  className={`px-2.5 py-1 rounded-full font-mono text-[11px] font-semibold border transition-all ${
                     currentSymbol === sym && activeTab === 'analysis'
-                      ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40'
-                      : 'bg-zinc-900/80 hover:bg-zinc-800 text-zinc-400 border-zinc-800 hover:text-zinc-200'
+                      ? 'bg-foreground text-background border-foreground'
+                      : 'bg-card/70 hover:bg-card text-muted-foreground border-border/40 hover:text-foreground'
                   }`}
                 >
                   {sym}
@@ -305,19 +310,19 @@ export default function App() {
           {/* Main 360° Deep Dive Analysis View */}
           <div className="space-y-6">
             {/* Stock Banner Header */}
-            <div className="glass-panel rounded-2xl p-6 border border-slate-800 space-y-4 relative overflow-hidden">
+            <div className="glass-card p-6 space-y-4 relative overflow-hidden">
               <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
                 <div>
                   <div className="flex items-center gap-3">
-                    <h1 className="text-2xl font-black text-slate-100 tracking-tight">
+                    <h1 className="font-serif text-2xl font-bold text-foreground tracking-tight">
                       {currentStock.name}
                     </h1>
-                    <span className="text-xs font-mono font-bold bg-slate-800 text-emerald-400 px-2.5 py-1 rounded-lg border border-slate-700">
+                    <span className="text-xs font-mono font-semibold bg-muted text-foreground px-2.5 py-1 rounded-full border border-border/60">
                       {currentStock.symbol} : {currentStock.exchange}
                     </span>
                   </div>
-                  <p className="text-xs text-slate-400 mt-1 flex items-center gap-2">
-                    <Building2 className="w-3.5 h-3.5 text-emerald-400" />
+                  <p className="text-xs text-muted-foreground mt-1 flex items-center gap-2">
+                    <Building2 className="w-3.5 h-3.5 text-muted-foreground" />
                     <span>Sector: {currentStock.sector}</span>
                   </p>
                 </div>
@@ -325,12 +330,12 @@ export default function App() {
                 {/* Stock Price & Watchlist Button */}
                 <div className="flex items-center gap-4">
                   <div className="text-right">
-                    <div className="text-3xl font-extrabold font-mono text-slate-100">
+                    <div className="text-3xl font-bold font-mono text-foreground">
                       ₹{currentStock.price.toLocaleString()}
                     </div>
                     <div
-                      className={`text-xs font-bold font-mono flex items-center justify-end ${
-                        isPositive ? 'text-emerald-400' : 'text-rose-400'
+                      className={`text-xs font-semibold font-mono flex items-center justify-end ${
+                        isPositive ? 'text-success' : 'text-destructive'
                       }`}
                     >
                       {isPositive ? <ArrowUpRight className="w-4 h-4 mr-0.5" /> : <ArrowDownRight className="w-4 h-4 mr-0.5" />}
@@ -340,43 +345,43 @@ export default function App() {
 
                   <button
                     onClick={() => toggleWatchlist(currentStock.symbol)}
-                    className={`px-4 py-2.5 rounded-xl text-xs font-bold flex items-center gap-2 transition-all border ${
+                    className={`px-4 py-2 rounded-full text-xs font-semibold flex items-center gap-2 transition-all border ${
                       isInWatchlist
-                        ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
-                        : 'bg-slate-900 hover:bg-slate-800 text-slate-200 border-slate-700'
+                        ? 'bg-warning/10 text-warning border-warning/30'
+                        : 'bg-muted hover:bg-muted/80 text-foreground border-border/60'
                     }`}
                   >
-                    <Star className={`w-4 h-4 ${isInWatchlist ? 'fill-amber-400 text-amber-400' : ''}`} />
-                    {isInWatchlist ? 'Saved in Watchlist' : 'Add to Watchlist'}
+                    <Star className={`w-3.5 h-3.5 ${isInWatchlist ? 'fill-warning text-warning' : ''}`} />
+                    <span>{isInWatchlist ? 'Saved in Watchlist' : 'Add to Watchlist'}</span>
                   </button>
                 </div>
               </div>
 
               {/* Ratios Metrics Strip */}
-              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-3 pt-4 border-t border-slate-800/80 text-xs">
-                <div className="bg-slate-900/60 p-2.5 rounded-xl border border-slate-800">
-                  <span className="text-slate-400 block text-[10px] uppercase">Market Cap</span>
-                  <span className="font-bold font-mono text-slate-200">{currentStock.marketCap}</span>
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-3 pt-4 border-t border-border/40 text-xs">
+                <div className="glass-card p-3 space-y-0.5">
+                  <span className="text-muted-foreground block text-[10px] uppercase font-semibold">Market Cap</span>
+                  <span className="font-bold font-mono text-foreground">{currentStock.marketCap}</span>
                 </div>
-                <div className="bg-slate-900/60 p-2.5 rounded-xl border border-slate-800">
-                  <span className="text-slate-400 block text-[10px] uppercase">P/E Ratio</span>
-                  <span className="font-bold font-mono text-emerald-400">{currentStock.peRatio}x</span>
+                <div className="glass-card p-3 space-y-0.5">
+                  <span className="text-muted-foreground block text-[10px] uppercase font-semibold">P/E Ratio</span>
+                  <span className="font-bold font-mono text-success">{currentStock.peRatio}x</span>
                 </div>
-                <div className="bg-slate-900/60 p-2.5 rounded-xl border border-slate-800">
-                  <span className="text-slate-400 block text-[10px] uppercase">ROE %</span>
-                  <span className="font-bold font-mono text-emerald-400">{currentStock.roe}</span>
+                <div className="glass-card p-3 space-y-0.5">
+                  <span className="text-muted-foreground block text-[10px] uppercase font-semibold">ROE %</span>
+                  <span className="font-bold font-mono text-success">{currentStock.roe}</span>
                 </div>
-                <div className="bg-slate-900/60 p-2.5 rounded-xl border border-slate-800">
-                  <span className="text-slate-400 block text-[10px] uppercase">ROCE %</span>
-                  <span className="font-bold font-mono text-slate-200">{currentStock.roce}</span>
+                <div className="glass-card p-3 space-y-0.5">
+                  <span className="text-muted-foreground block text-[10px] uppercase font-semibold">ROCE %</span>
+                  <span className="font-bold font-mono text-foreground">{currentStock.roce}</span>
                 </div>
-                <div className="bg-slate-900/60 p-2.5 rounded-xl border border-slate-800">
-                  <span className="text-slate-400 block text-[10px] uppercase">EV / EBITDA</span>
-                  <span className="font-bold font-mono text-slate-200">{currentStock.evEbitda}x</span>
+                <div className="glass-card p-3 space-y-0.5">
+                  <span className="text-muted-foreground block text-[10px] uppercase font-semibold">EV / EBITDA</span>
+                  <span className="font-bold font-mono text-foreground">{currentStock.evEbitda}x</span>
                 </div>
-                <div className="bg-slate-900/60 p-2.5 rounded-xl border border-slate-800">
-                  <span className="text-slate-400 block text-[10px] uppercase">Debt / Equity</span>
-                  <span className="font-bold font-mono text-slate-200">{currentStock.debtToEquity}</span>
+                <div className="glass-card p-3 space-y-0.5">
+                  <span className="text-muted-foreground block text-[10px] uppercase font-semibold">Debt / Equity</span>
+                  <span className="font-bold font-mono text-foreground">{currentStock.debtToEquity}</span>
                 </div>
               </div>
             </div>
@@ -394,13 +399,13 @@ export default function App() {
             />
 
             {/* AI Verdict & Drivers Card */}
-            <div className="glass-panel rounded-2xl p-6 border border-zinc-800 bg-black space-y-4">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-zinc-800 pb-3">
+            <div className="glass-card p-6 space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-border/40 pb-3">
                 <div className="flex items-center gap-2">
-                  <Sparkles className="w-5 h-5 text-emerald-400" />
-                  <h3 className="text-base font-bold text-slate-100">stock.ai Fin-LLM 360° Verdict</h3>
+                  <Sparkles className="w-4 h-4 text-info" />
+                  <h3 className="font-serif text-base font-bold text-foreground">stock.ai Fin-LLM 360° Verdict</h3>
                   {currentStock.engine && (
-                    <span className={`text-[10px] uppercase font-bold px-2 py-0.5 rounded border ${currentStock.engine.includes('Gemini') ? 'bg-indigo-500/20 text-indigo-300 border-indigo-500/30' : 'bg-slate-800 text-slate-400 border-slate-700'}`}>
+                    <span className="text-[10px] uppercase font-mono font-semibold px-2 py-0.5 rounded-full bg-muted text-muted-foreground border border-border/50">
                       {currentStock.engine}
                     </span>
                   )}
@@ -408,29 +413,29 @@ export default function App() {
                 <button
                   onClick={handleGenerateAIVerdict}
                   disabled={isVerdictLoading}
-                  className="px-4 py-2 bg-gradient-to-r from-emerald-600 to-blue-600 hover:from-emerald-500 hover:to-blue-500 disabled:opacity-50 text-slate-100 text-xs font-bold rounded-xl flex items-center gap-2 transition-all shadow-md shadow-emerald-500/20"
+                  className="px-4 py-2 bg-foreground text-background hover:bg-foreground/90 disabled:opacity-50 text-xs font-semibold rounded-full flex items-center gap-2 transition-all shadow-xs"
                 >
                   {isVerdictLoading ? (
-                    <><div className="w-4 h-4 border-2 border-slate-100 border-t-transparent rounded-full animate-spin"></div> Synthesizing Verdict...</>
+                    <><div className="w-3.5 h-3.5 border-2 border-background border-t-transparent rounded-full animate-spin"></div> Synthesizing Verdict...</>
                   ) : currentStock.aiVerdict ? (
-                    <><RotateCw className="w-4 h-4" /> Regenerate Verdict</>
+                    <><RotateCw className="w-3.5 h-3.5" /> Regenerate Verdict</>
                   ) : (
-                    <><Zap className="w-4 h-4" /> Generate AI Verdict</>
+                    <><Zap className="w-3.5 h-3.5" /> Generate AI Verdict</>
                   )}
                 </button>
               </div>
-              <p className="text-xs sm:text-sm text-slate-300 leading-relaxed bg-zinc-900/60 p-4 rounded-xl border border-zinc-800/80">
+              <p className="text-xs sm:text-sm text-foreground leading-relaxed bg-card/60 p-4 rounded-xl border border-border/40">
                 {currentStock.aiVerdict || (
-                  <span className="text-slate-400 italic">
+                  <span className="text-muted-foreground italic">
                     No AI verdict generated yet for this stock. Click "Generate AI Verdict" above to synthesize a qualitative thesis, governance notes & catalysts.
                   </span>
                 )}
               </p>
               {currentStock.governanceNotes && (
-                <div className="bg-indigo-950/20 p-3.5 rounded-xl border border-indigo-500/20 flex items-start gap-2.5 text-xs text-indigo-200">
-                  <ShieldCheck className="w-4 h-4 text-indigo-400 shrink-0 mt-0.5" />
+                <div className="bg-info/5 p-3.5 rounded-xl border border-info/20 flex items-start gap-2.5 text-xs text-foreground">
+                  <ShieldCheck className="w-4 h-4 text-info shrink-0 mt-0.5" />
                   <div>
-                    <span className="font-bold text-indigo-300 mr-1.5">Corporate Governance:</span>
+                    <span className="font-bold text-info mr-1.5">Corporate Governance:</span>
                     <span>{currentStock.governanceNotes}</span>
                   </div>
                 </div>
@@ -438,58 +443,58 @@ export default function App() {
 
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-2">
                 {/* Bull Points */}
-                <div className="bg-emerald-950/20 p-4 rounded-xl border border-emerald-500/20 space-y-2">
-                  <h4 className="text-xs font-bold text-emerald-400 uppercase tracking-wider flex items-center gap-1.5">
+                <div className="bg-success/5 p-4 rounded-xl border border-success/20 space-y-2">
+                  <h4 className="text-xs font-bold text-success uppercase tracking-wider flex items-center gap-1.5">
                     <TrendingUp className="w-4 h-4" /> Key Bullish Catalysts
                   </h4>
-                  <ul className="space-y-1.5 text-xs text-slate-300">
+                  <ul className="space-y-1.5 text-xs text-foreground">
                     {currentStock.bullPoints && currentStock.bullPoints.length > 0 ? (
                       currentStock.bullPoints.map((pt, idx) => (
                         <li key={idx} className="flex items-start gap-2">
-                          <span className="text-emerald-400 font-bold">•</span>
+                          <span className="text-success font-bold">•</span>
                           <span>{pt}</span>
                         </li>
                       ))
                     ) : (
-                      <li className="text-slate-500 italic">Click "Generate AI Analysis" to extract key catalysts.</li>
+                      <li className="text-muted-foreground italic">Click "Generate AI Analysis" to extract key catalysts.</li>
                     )}
                   </ul>
                 </div>
 
                 {/* Bear Points */}
-                <div className="bg-rose-950/20 p-4 rounded-xl border border-rose-500/20 space-y-2">
-                  <h4 className="text-xs font-bold text-rose-400 uppercase tracking-wider flex items-center gap-1.5">
+                <div className="bg-destructive/5 p-4 rounded-xl border border-destructive/20 space-y-2">
+                  <h4 className="text-xs font-bold text-destructive uppercase tracking-wider flex items-center gap-1.5">
                     <ArrowDownRight className="w-4 h-4" /> Risk Factors & Cautionary Notes
                   </h4>
-                  <ul className="space-y-1.5 text-xs text-slate-300">
+                  <ul className="space-y-1.5 text-xs text-foreground">
                     {currentStock.bearPoints && currentStock.bearPoints.length > 0 ? (
                       currentStock.bearPoints.map((pt, idx) => (
                         <li key={idx} className="flex items-start gap-2">
-                          <span className="text-rose-400 font-bold">•</span>
+                          <span className="text-destructive font-bold">•</span>
                           <span>{pt}</span>
                         </li>
                       ))
                     ) : (
-                      <li className="text-slate-500 italic">Click "Generate AI Analysis" to compute risk factors.</li>
+                      <li className="text-muted-foreground italic">Click "Generate AI Analysis" to compute risk factors.</li>
                     )}
                   </ul>
                 </div>
 
                 {/* Future Potential Points */}
-                <div className="bg-cyan-950/20 p-4 rounded-xl border border-cyan-500/20 space-y-2">
-                  <h4 className="text-xs font-bold text-cyan-400 uppercase tracking-wider flex items-center gap-1.5">
+                <div className="bg-chart-4/5 p-4 rounded-xl border border-chart-4/20 space-y-2">
+                  <h4 className="text-xs font-bold text-chart-4 uppercase tracking-wider flex items-center gap-1.5">
                     <Compass className="w-4 h-4" /> Future Potential & Runway
                   </h4>
-                  <ul className="space-y-1.5 text-xs text-slate-300">
+                  <ul className="space-y-1.5 text-xs text-foreground">
                     {currentStock.futurePoints && currentStock.futurePoints.length > 0 ? (
                       currentStock.futurePoints.map((pt, idx) => (
                         <li key={idx} className="flex items-start gap-2">
-                          <span className="text-cyan-400 font-bold">•</span>
+                          <span className="text-chart-4 font-bold">•</span>
                           <span>{pt}</span>
                         </li>
                       ))
                     ) : (
-                      <li className="text-slate-500 italic">Click "Generate AI Analysis" to extract secular growth runway.</li>
+                      <li className="text-muted-foreground italic">Click "Generate AI Analysis" to extract secular growth runway.</li>
                     )}
                   </ul>
                 </div>
@@ -511,8 +516,8 @@ export default function App() {
       />
 
       {/* Global Footer */}
-      <footer className="border-t border-slate-800/80 py-6 px-4 text-center text-xs text-slate-500 space-y-2">
-        <p className="font-medium text-slate-400">
+      <footer className="border-t border-border/40 py-6 px-4 text-center text-xs text-muted-foreground space-y-2 bg-card/20 relative z-10">
+        <p className="font-medium text-foreground">
           stock.ai — 360° AI Equity Research & Financial Intelligence Platform
         </p>
         <p className="text-[11px] max-w-xl mx-auto">

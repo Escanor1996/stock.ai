@@ -181,13 +181,13 @@ app.get('/api/portfolio/sample', (req, res) => {
 
 // POST /api/portfolio/save — Persist portfolio to local SQLite
 app.post('/api/portfolio/save', (req, res) => {
-  const { holdings, meta } = req.body;
-  if (!holdings || !Array.isArray(holdings)) {
-    return res.status(400).json({ success: false, error: 'Holdings array is required' });
+  const payload = req.body;
+  if (!payload || (!payload.holdings && !payload.stocks && !payload.mutual_funds && !Array.isArray(payload))) {
+    return res.status(400).json({ success: false, error: 'Valid portfolio payload is required' });
   }
 
   try {
-    db.savePortfolioHoldings(holdings, meta || {});
+    db.savePortfolioHoldings(payload, payload.meta || {});
     res.json({ success: true, message: 'Portfolio saved successfully' });
   } catch (err) {
     console.error('Save portfolio error:', err);
@@ -219,13 +219,13 @@ app.delete('/api/portfolio', (req, res) => {
 
 // POST /api/portfolio/export/csv — Generate downloadable CSV
 app.post('/api/portfolio/export/csv', (req, res) => {
-  const { holdings, summary } = req.body;
-  if (!holdings || !Array.isArray(holdings)) {
-    return res.status(400).json({ success: false, error: 'Holdings array is required' });
+  const payload = req.body;
+  if (!payload || (!payload.holdings && !payload.stocks && !Array.isArray(payload))) {
+    return res.status(400).json({ success: false, error: 'Holdings or portfolio payload is required' });
   }
 
   try {
-    const csv = exportToCSV(holdings, summary);
+    const csv = exportToCSV(payload, payload.summary);
     res.setHeader('Content-Type', 'text/csv');
     res.setHeader('Content-Disposition', 'attachment; filename="stock_ai_portfolio.csv"');
     res.send(csv);
