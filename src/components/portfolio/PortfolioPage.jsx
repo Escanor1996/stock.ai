@@ -11,13 +11,13 @@ import AllocationBreakdown from './AllocationBreakdown';
 import TransactionsLedger from './TransactionsLedger';
 import {
   uploadCASFile,
+  uploadBrokerStatement,
   fetchSamplePortfolio,
   savePortfolio,
   fetchSavedPortfolio,
   clearSavedPortfolio,
   exportPortfolioCSV
 } from '../../utils/api';
-
 const LOCAL_STORAGE_KEY = 'stock_ai_cached_portfolio';
 
 export default function PortfolioPage({ onSelectStock }) {
@@ -33,7 +33,8 @@ export default function PortfolioPage({ onSelectStock }) {
   const [searchQuery, setSearchQuery] = useState('');
   const [saveStatus, setSaveStatus] = useState(null); // 'saving' | 'saved' | null
   const [isExporting, setIsExporting] = useState(false);
-
+  const [isBrokerUploading, setIsBrokerUploading] = useState(false);
+  const [brokerNotice, setBrokerNotice] = useState(null);
   // Load cached or saved portfolio on mount
   useEffect(() => {
     const cached = localStorage.getItem(LOCAL_STORAGE_KEY);
@@ -157,6 +158,90 @@ export default function PortfolioPage({ onSelectStock }) {
     a.remove();
   };
 
+  // Upload broker spreadsheet (Groww, Zerodha, Upstox, etc.) to set accurate buy prices
+  const handleUploadBrokerSpreadsheet = async (file) => {
+    if (!file || !portfolioData) return;
+    setIsBrokerUploading(true);
+    setError(null);
+    try {
+      const res = await uploadBrokerStatement(file, portfolioData);
+      let updatedPortfolio = res.portfolio;
+
+      if (!updatedPortfolio && res.broker_data?.holdings) {
+        const brokerMap = new Map();
+        for (const h of res.broker_data.holdings) {
+          if (h.isin) brokerMap.set(h.isin.toUpperCase(), h);
+        }
+
+        let matched = 0;
+        const enrichList = (list) => (list || []).map(item => {
+          const isin = (item.isin || '').toUpperCase();
+          const b = brokerMap.get(isin);
+          if (b && b.avg_buy_price > 0) {
+            matched++;
+            const curPrice = item.live_price ?? item.price ?? 0;
+            const buyPrice = b.avg_buy_price;
+            const costBasis = b.buy_value || Math.round((item.quantity || 0) * buyPrice * 100) / 100;
+            const gain = Math.round((curPrice - buyPrice) * (item.quantity || 0) * 100) / 100;
+            const gainPct = buyPrice > 0 ? Math.round(((curPrice - buyPrice) / buyPrice) * 10000) / 100 : 0;
+            return {
+              ...item,
+              buy_price: buyPrice,
+              cost_basis: costBasis,
+              gain,
+              gain_pct: gainPct,
+              has_broker_buy_price: true,
+              broker_name: res.broker_data.broker || 'Broker'
+            };
+          }
+          return item;
+        });
+
+        const newStocks = enrichList(portfolioData.stocks || portfolioData.holdings);
+        const newDirect = enrichList(portfolioData.direct_stocks);
+        const newEtfs = enrichList(portfolioData.etfs);
+        const newBonds = enrichList(portfolioData.bonds);
+
+        const totalCost = newStocks.reduce((sum, h) => sum + (h.has_broker_buy_price ? h.cost_basis : ((h.price || 0) * (h.quantity || 0))), 0);
+        const totalLive = portfolioData.summary?.total_stocks_value || newStocks.reduce((sum, h) => sum + (h.live_value || h.value || 0), 0);
+        const netGain = Math.round((totalLive - totalCost) * 100) / 100;
+        const netGainPct = totalCost > 0 ? Math.round((netGain / totalCost) * 10000) / 100 : 0;
+
+        updatedPortfolio = {
+          ...portfolioData,
+          stocks: newStocks,
+          direct_stocks: newDirect,
+          etfs: newEtfs,
+          bonds: newBonds,
+          summary: {
+            ...portfolioData.summary,
+            unrealized_gain: netGain,
+            unrealized_gain_pct: netGainPct,
+            total_stocks_invested: Math.round(totalCost * 100) / 100,
+            broker_source: res.broker_data.broker || 'Broker',
+            broker_client_code: res.broker_data.client_code,
+            broker_enriched_count: matched,
+            broker_total_positions: res.broker_data.total_positions
+          }
+        };
+      }
+
+      if (updatedPortfolio) {
+        updatePortfolioState(updatedPortfolio);
+        const count = updatedPortfolio.summary?.broker_enriched_count || 0;
+        setBrokerNotice({
+          type: 'success',
+          message: `Successfully imported ${res.broker_data?.broker || 'broker'} buy prices for ${count} positions. Accurate P&L active.`
+        });
+        setTimeout(() => setBrokerNotice(null), 6000);
+      }
+    } catch (err) {
+      setError('Failed to import broker buy prices: ' + err.message);
+    } finally {
+      setIsBrokerUploading(false);
+    }
+  };
+
   // Data Collections
   const stocksList = useMemo(() => {
     return portfolioData?.stocks || portfolioData?.holdings || [];
@@ -217,9 +302,20 @@ export default function PortfolioPage({ onSelectStock }) {
         onExportJSON={handleExportJSON}
         onSave={handleSaveToDatabase}
         onClear={handleClearPortfolio}
+        onUploadBroker={handleUploadBrokerSpreadsheet}
         saveStatus={saveStatus}
         isExporting={isExporting}
+        isBrokerUploading={isBrokerUploading}
       />
+
+      {brokerNotice && (
+        <div className="p-3 bg-info/10 border border-info/30 rounded-xl text-xs text-info flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <span className="font-semibold">{brokerNotice.message}</span>
+          </div>
+          <button onClick={() => setBrokerNotice(null)} className="text-info/70 hover:text-info text-sm">✕</button>
+        </div>
+      )}
 
       {/* ── CONDITIONAL VIEW: UPLOAD FORM OR PORTFOLIO DASHBOARD ── */}
       {!portfolioData ? (

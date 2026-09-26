@@ -3,7 +3,7 @@ import express from 'express';
 import cors from 'cors';
 import { getStockData, getHistoricalPrices, searchStocks } from './services/stockService.js';
 import { generateAIScore, generateAIVerdict, generateAIAnalysis } from './services/aiService.js';
-import { parseCASFile, getSamplePortfolio, exportToCSV } from './services/casService.js';
+import { parseCASFile, parseBrokerSpreadsheet, mergeBrokerPrices, getSamplePortfolio, exportToCSV } from './services/casService.js';
 import * as db from './db.js';
 import multer from 'multer';
 import os from 'os';
@@ -165,6 +165,39 @@ app.post('/api/portfolio/parse', upload.single('file'), async (req, res) => {
       success: false,
       error_type: err.errorType || 'PARSE_ERROR',
       error: err.message || 'Failed to process CAS statement'
+    });
+  }
+});
+
+// POST /api/portfolio/broker-statement — Parse and merge broker spreadsheet (Groww, Zerodha, Upstox, etc.)
+app.post('/api/portfolio/broker-statement', upload.single('file'), async (req, res) => {
+  if (!req.file) {
+    return res.status(400).json({ success: false, error: 'No spreadsheet file uploaded' });
+  }
+
+  try {
+    const brokerData = await parseBrokerSpreadsheet(req.file.path);
+    
+    let enrichedPortfolio = null;
+    if (req.body.portfolio) {
+      try {
+        const portfolioPayload = typeof req.body.portfolio === 'string' ? JSON.parse(req.body.portfolio) : req.body.portfolio;
+        enrichedPortfolio = mergeBrokerPrices(portfolioPayload, brokerData);
+      } catch (err) {
+        console.warn('Could not merge broker prices server-side:', err.message);
+      }
+    }
+
+    res.json({
+      success: true,
+      broker_data: brokerData,
+      portfolio: enrichedPortfolio
+    });
+  } catch (err) {
+    console.error('Broker statement parse error:', err.message);
+    res.status(422).json({
+      success: false,
+      error: err.message || 'Failed to process broker spreadsheet'
     });
   }
 });

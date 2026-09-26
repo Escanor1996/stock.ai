@@ -44,8 +44,15 @@ export default function BondsTable({ bonds = [] }) {
               <td className="py-3.5 px-4 text-right text-foreground font-mono font-medium">
                 {bd.quantity}
               </td>
-              <td className="py-3.5 px-4 text-right text-muted-foreground font-mono">
-                ₹{bd.price.toFixed(2)}
+              <td className="py-3.5 px-4 text-right font-mono">
+                {bd.has_broker_buy_price && bd.buy_price > 0 ? (
+                  <div>
+                    <div className="font-semibold text-foreground">₹{bd.buy_price.toFixed(2)}</div>
+                    <div className="text-[10px] text-muted-foreground">CAS: ₹{bd.price.toFixed(2)}</div>
+                  </div>
+                ) : (
+                  <span className="text-muted-foreground">₹{bd.price.toFixed(2)}</span>
+                )}
               </td>
               <td className="py-3.5 px-4 text-right font-bold text-foreground font-mono">
                 ₹{bd.value.toLocaleString('en-IN', { maximumFractionDigits: 2 })}

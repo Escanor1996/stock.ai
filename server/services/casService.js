@@ -14,6 +14,7 @@ const venvPython = path.join(__dirname, '..', 'venv', 'bin', 'python');
 const systemPython = 'python3';
 const pythonBin = fs.existsSync(venvPython) ? venvPython : systemPython;
 const parserScript = path.join(__dirname, 'cas_parser.py');
+const brokerScript = path.join(__dirname, 'broker_parser.py');
 
 /**
  * Parses a CAS PDF using the Python bridge.
@@ -116,6 +117,104 @@ export async function parseCASFile(filePath, password = '', enrichPrices = true)
       }
     }
   }
+}
+/**
+ * Parses a broker holdings spreadsheet (.xlsx, .xls, .csv).
+ * @param {string} filePath - Absolute path to uploaded spreadsheet
+ * @returns {Promise<Object>}
+ */
+export async function parseBrokerSpreadsheet(filePath) {
+  try {
+    const res = await execFileAsync(pythonBin, [brokerScript, filePath], {
+      maxBuffer: 25 * 1024 * 1024,
+      timeout: 30000
+    });
+    const result = JSON.parse(res.stdout);
+    if (!result.success) {
+      throw new Error(result.error || 'Failed to parse broker spreadsheet');
+    }
+    return result;
+  } catch (err) {
+    if (err.stdout) {
+      try {
+        const parsed = JSON.parse(err.stdout);
+        if (parsed.error) throw new Error(parsed.error);
+      } catch (_) {}
+    }
+    throw new Error(err.message || 'Failed to parse broker spreadsheet');
+  } finally {
+    if (filePath && fs.existsSync(filePath)) {
+      try { fs.unlinkSync(filePath); } catch (_) {}
+    }
+  }
+}
+
+/**
+ * Merges broker average buy prices into the CAS portfolio.
+ * Keeps all other CAS data unchanged, but accurately computes true P&L and cost basis.
+ */
+export function mergeBrokerPrices(portfolio, brokerData) {
+  if (!portfolio || !brokerData?.holdings) return portfolio;
+
+  const brokerMap = new Map();
+  for (const h of brokerData.holdings) {
+    if (h.isin) brokerMap.set(h.isin.toUpperCase(), h);
+  }
+
+  let matchedCount = 0;
+
+  const updateHolding = (item) => {
+    const isin = (item.isin || '').toUpperCase();
+    const brokerItem = brokerMap.get(isin);
+    if (brokerItem && brokerItem.avg_buy_price > 0) {
+      matchedCount++;
+      item.buy_price = brokerItem.avg_buy_price;
+      item.cost_basis = brokerItem.buy_value || Math.round((item.quantity || 0) * brokerItem.avg_buy_price * 100) / 100;
+      item.has_broker_buy_price = true;
+      item.broker_name = brokerData.broker || 'Broker';
+
+      const currentPrice = item.live_price ?? item.price ?? 0;
+      item.gain = Math.round((currentPrice - item.buy_price) * (item.quantity || 0) * 100) / 100;
+      item.gain_pct = item.buy_price > 0 ? Math.round(((currentPrice - item.buy_price) / item.buy_price) * 10000) / 100 : 0;
+    }
+  };
+
+  if (Array.isArray(portfolio.stocks)) {
+    portfolio.stocks.forEach(updateHolding);
+  }
+  if (Array.isArray(portfolio.direct_stocks)) {
+    portfolio.direct_stocks.forEach(updateHolding);
+  }
+  if (Array.isArray(portfolio.etfs)) {
+    portfolio.etfs.forEach(updateHolding);
+  }
+  if (Array.isArray(portfolio.bonds)) {
+    portfolio.bonds.forEach(updateHolding);
+  }
+
+  // Recalculate summary metrics
+  const stocksList = portfolio.stocks || [];
+  const stocksCostTotal = stocksList.reduce((sum, h) => {
+    if (h.has_broker_buy_price) return sum + (h.cost_basis || 0);
+    return sum + ((h.price || 0) * (h.quantity || 0));
+  }, 0);
+
+  const stocksLiveVal = portfolio.summary?.total_stocks_value || stocksList.reduce((sum, h) => sum + (h.live_value || h.value || 0), 0);
+  const totalGain = Math.round((stocksLiveVal - stocksCostTotal) * 100) / 100;
+  const totalGainPct = stocksCostTotal > 0 ? Math.round((totalGain / stocksCostTotal) * 10000) / 100 : 0;
+
+  portfolio.summary = {
+    ...portfolio.summary,
+    unrealized_gain: totalGain,
+    unrealized_gain_pct: totalGainPct,
+    total_stocks_invested: Math.round(stocksCostTotal * 100) / 100,
+    broker_source: brokerData.broker,
+    broker_client_code: brokerData.client_code,
+    broker_enriched_count: matchedCount,
+    broker_total_positions: brokerData.total_positions
+  };
+
+  return portfolio;
 }
 
 /**

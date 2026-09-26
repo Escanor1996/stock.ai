@@ -1,11 +1,13 @@
-import React from 'react';
+import React, { useRef } from 'react';
 import {
   FileSpreadsheet,
   FileCode,
   Download,
   CheckCircle2,
   Trash2,
-  Wallet
+  Wallet,
+  RefreshCw,
+  UploadCloud
 } from 'lucide-react';
 
 export default function PortfolioHeader({
@@ -14,9 +16,12 @@ export default function PortfolioHeader({
   onExportJSON = () => {},
   onSave = () => {},
   onClear = () => {},
+  onUploadBroker = () => {},
   saveStatus = null, // 'saving' | 'saved' | null
-  isExporting = false
+  isExporting = false,
+  isBrokerUploading = false
 }) {
+  const brokerFileRef = useRef(null);
   return (
     <div className="glass-card p-5 flex flex-col md:flex-row md:items-center justify-between gap-4">
       {/* Title & Subtitle */}
@@ -38,6 +43,12 @@ export default function PortfolioHeader({
                 Demo Mode
               </span>
             )}
+            {portfolioData?.summary?.broker_source && (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-info/10 text-info border border-info/30">
+                <CheckCircle2 className="w-3 h-3 text-info" />
+                <span>{portfolioData.summary.broker_source} Buy Prices ({portfolioData.summary.broker_enriched_count || 0})</span>
+              </span>
+            )}
           </div>
           <p className="text-xs text-muted-foreground mt-0.5">
             Consolidated Demat & Mutual Fund statements with 1-Year historical analytics.
@@ -48,6 +59,35 @@ export default function PortfolioHeader({
       {/* Action Buttons (Wealthfolio Pill Button Pattern) */}
       {portfolioData && (
         <div className="flex items-center flex-wrap gap-2">
+          {/* Hidden broker spreadsheet input */}
+          <input
+            ref={brokerFileRef}
+            type="file"
+            accept=".xlsx,.xls,.csv"
+            className="hidden"
+            onChange={(e) => {
+              if (e.target.files && e.target.files[0]) {
+                onUploadBroker(e.target.files[0]);
+                e.target.value = '';
+              }
+            }}
+          />
+
+          {/* Import Broker Buy Prices */}
+          <button
+            type="button"
+            onClick={() => brokerFileRef.current?.click()}
+            disabled={isBrokerUploading}
+            className="inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold text-foreground bg-muted hover:bg-muted/80 border border-border rounded-full transition-all duration-150 active:scale-95 disabled:opacity-50"
+            title="Upload broker spreadsheet (Groww, Zerodha, Upstox) to set accurate buy prices"
+          >
+            {isBrokerUploading ? (
+              <RefreshCw className="w-3.5 h-3.5 text-muted-foreground animate-spin" />
+            ) : (
+              <FileSpreadsheet className="w-3.5 h-3.5 text-info" />
+            )}
+            <span>{isBrokerUploading ? 'Importing...' : 'Import Buy Prices'}</span>
+          </button>
           {/* Export CSV */}
           <button
             type="button"

@@ -252,6 +252,26 @@ export async function uploadCASFile(file, password = '', enrich = true) {
   return result;
 }
 
+export async function uploadBrokerStatement(file, currentPortfolio = null) {
+  const formData = new FormData();
+  formData.append('file', file);
+  if (currentPortfolio) {
+    formData.append('portfolio', JSON.stringify(currentPortfolio));
+  }
+
+  const response = await fetch('/api/portfolio/broker-statement', {
+    method: 'POST',
+    body: formData,
+  });
+
+  const result = await response.json();
+  if (!response.ok || !result.success) {
+    throw new Error(result.error || 'Failed to process broker spreadsheet');
+  }
+
+  return result;
+}
+
 export async function fetchSamplePortfolio() {
   const response = await fetch('/api/portfolio/sample');
   if (!response.ok) throw new Error('Failed to load sample portfolio');

@@ -60,7 +60,9 @@ export default function MetricCards({
                 <span className={`font-mono font-semibold ${stockGainTotal >= 0 ? 'text-success' : 'text-destructive'}`}>
                   {stockGainTotal >= 0 ? '+' : ''}{stockGainPct.toFixed(2)}%
                 </span>
-                <span className="text-muted-foreground">vs statement</span>
+                <span className="text-muted-foreground">
+                  {summary.broker_source ? `vs ${summary.broker_source} buy price` : 'vs statement'}
+                </span>
               </>
             )}
 
@@ -85,7 +87,11 @@ export default function MetricCards({
               ₹{stocksVal.toLocaleString('en-IN', { maximumFractionDigits: 0 })}
             </div>
             <div className="text-xs text-muted-foreground truncate">
-              {directStocksList.length} Direct • {etfsList.length} ETFs
+              {summary.total_stocks_invested ? (
+                <span>Cost: ₹{Math.round(summary.total_stocks_invested).toLocaleString('en-IN')} • {directStocksList.length + etfsList.length} Positions</span>
+              ) : (
+                <span>{directStocksList.length} Direct • {etfsList.length} ETFs</span>
+              )}
             </div>
           </div>
         </div>
@@ -123,7 +129,7 @@ export default function MetricCards({
         {/* Card 4: Performance / Inflow */}
         <div className="space-y-1.5">
           <div className="text-[11px] font-semibold text-muted-foreground tracking-wider uppercase px-0.5">
-            {performance ? 'Monthly Avg Expansion' : 'Equities P&L'}
+            {performance ? 'Monthly Avg Expansion' : (summary.broker_source ? `${summary.broker_source} P&L` : 'Equities P&L')}
           </div>
           <div className="glass-card p-4 space-y-1">
             {(() => {

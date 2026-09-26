@@ -21,6 +21,10 @@ export default function StocksTable({
     }
   };
 
+  const hasBrokerData = useMemo(() => {
+    return stocks.some(s => s.has_broker_buy_price);
+  }, [stocks]);
+
   // Filter & sort
   const filteredStocks = useMemo(() => {
     let source = stocks;
@@ -126,7 +130,9 @@ export default function StocksTable({
                   <ArrowUpDown className="w-3 h-3 text-muted-foreground/60" />
                 </div>
               </th>
-              <th className="py-3 px-4 text-right">Statement Price</th>
+              <th className="py-3 px-4 text-right">
+                {hasBrokerData ? 'Avg Buy Price' : 'Statement Price'}
+              </th>
               <th className="py-3 px-4 text-right">Live Price</th>
               <th
                 className="py-3 px-4 text-right cursor-pointer hover:text-foreground transition-colors"
@@ -137,7 +143,9 @@ export default function StocksTable({
                   <ArrowUpDown className="w-3 h-3 text-muted-foreground/60" />
                 </div>
               </th>
-              <th className="py-3 px-4 text-right">P&L vs Statement</th>
+              <th className="py-3 px-4 text-right">
+                {hasBrokerData ? 'P&L vs Buy Price' : 'P&L vs Statement'}
+              </th>
               <th
                 className="py-3 px-4 text-right cursor-pointer hover:text-foreground transition-colors"
                 onClick={() => handleSort('weight_pct')}
@@ -200,9 +208,22 @@ export default function StocksTable({
                       {stock.quantity.toLocaleString('en-IN')}
                     </td>
 
-                    {/* Statement Price */}
-                    <td className="py-3 px-4 text-right font-mono text-muted-foreground">
-                      ₹{stock.price.toFixed(2)}
+                    {/* Price (Buy Price vs Statement Price) */}
+                    <td className="py-3 px-4 text-right font-mono">
+                      {stock.has_broker_buy_price && stock.buy_price > 0 ? (
+                        <div>
+                          <div className="font-semibold text-foreground">
+                            ₹{stock.buy_price.toFixed(2)}
+                          </div>
+                          <div className="text-[10px] text-muted-foreground">
+                            CAS: ₹{stock.price.toFixed(2)}
+                          </div>
+                        </div>
+                      ) : (
+                        <span className="text-muted-foreground">
+                          ₹{stock.price.toFixed(2)}
+                        </span>
+                      )}
                     </td>
 
                     {/* Live Price (Two-line cell) */}
@@ -236,6 +257,11 @@ export default function StocksTable({
                           <div className="text-[10px]">
                             {isGain ? '+' : ''}{(stock.gain_pct || 0).toFixed(2)}%
                           </div>
+                          {stock.has_broker_buy_price && (
+                            <div className="text-[9px] text-muted-foreground">
+                              vs cost
+                            </div>
+                          )}
                         </div>
                       ) : (
                         <span className="text-muted-foreground text-[11px]">—</span>
