@@ -313,6 +313,7 @@ export function mergeBrokerPrices(portfolio, brokerData) {
   }
 
   portfolio.stocks = activeStocks;
+  portfolio.holdings = activeStocks;
   portfolio.direct_stocks = activeStocks.filter(s => s.subtype !== 'ETF');
   portfolio.etfs = activeStocks.filter(s => s.subtype === 'ETF');
 

@@ -183,6 +183,13 @@ app.post('/api/portfolio/broker-statement', upload.single('file'), async (req, r
       try {
         const portfolioPayload = typeof req.body.portfolio === 'string' ? JSON.parse(req.body.portfolio) : req.body.portfolio;
         enrichedPortfolio = mergeBrokerPrices(portfolioPayload, brokerData);
+        if (enrichedPortfolio) {
+          try {
+            db.savePortfolioHoldings(enrichedPortfolio, enrichedPortfolio.meta || {});
+          } catch (saveErr) {
+            console.warn('Could not auto-save enriched portfolio to DB:', saveErr.message);
+          }
+        }
       } catch (err) {
         console.warn('Could not merge broker prices server-side:', err.message);
       }

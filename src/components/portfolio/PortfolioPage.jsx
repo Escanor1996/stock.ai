@@ -373,6 +373,7 @@ export default function PortfolioPage({ onSelectStock }) {
         updatedPortfolio = {
           ...portfolioData,
           stocks: newStocks,
+          holdings: newStocks,
           direct_stocks: newDirect,
           etfs: newEtfs,
           bonds: newBonds,
@@ -401,6 +402,12 @@ export default function PortfolioPage({ onSelectStock }) {
 
       if (updatedPortfolio) {
         updatePortfolioState(updatedPortfolio);
+        // Auto-save the broker-precedence portfolio to database
+        try {
+          await savePortfolio(updatedPortfolio, updatedPortfolio.meta || {});
+        } catch (saveErr) {
+          console.warn('Could not auto-save to DB:', saveErr);
+        }
         const count = updatedPortfolio.summary?.broker_enriched_count || 0;
         setBrokerNotice({
           type: 'success',
@@ -421,14 +428,14 @@ export default function PortfolioPage({ onSelectStock }) {
   }, [portfolioData]);
 
   const directStocksList = useMemo(() => {
-    if (portfolioData?.direct_stocks && portfolioData.direct_stocks.length > 0) {
+    if (Array.isArray(portfolioData?.direct_stocks)) {
       return portfolioData.direct_stocks;
     }
     return stocksList.filter(s => s.subtype === 'DIRECT_STOCK' || !s.subtype);
   }, [portfolioData, stocksList]);
 
   const etfsList = useMemo(() => {
-    if (portfolioData?.etfs && portfolioData.etfs.length > 0) {
+    if (Array.isArray(portfolioData?.etfs)) {
       return portfolioData.etfs;
     }
     return stocksList.filter(s => s.subtype === 'ETF');
