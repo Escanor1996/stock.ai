@@ -20,15 +20,21 @@ import {
 } from '../../utils/api';
 const LOCAL_STORAGE_KEY = 'stock_ai_cached_portfolio';
 
-export default function PortfolioPage({ onSelectStock }) {
+export default function PortfolioPage({ onSelectStock = () => {}, initialTab = 'stocks' }) {
   const [portfolioData, setPortfolioData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
   // Tabs: 'stocks' | 'mutual_funds' | 'bonds' | 'analytics'
-  const [activeTab, setActiveTab] = useState('stocks');
+  const [activeTab, setActiveTab] = useState(initialTab || 'stocks');
   // Chart toggle: 'value' | 'change_pct'
   const [chartMetric, setChartMetric] = useState('value');
+
+  useEffect(() => {
+    if (initialTab) {
+      setActiveTab(initialTab);
+    }
+  }, [initialTab]);
 
   const [searchQuery, setSearchQuery] = useState('');
   const [saveStatus, setSaveStatus] = useState(null); // 'saving' | 'saved' | null

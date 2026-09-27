@@ -16,15 +16,18 @@ import {
   ArrowDownRight,
   ExternalLink,
   ChevronRight,
-  Briefcase
+  Briefcase,
+  LayoutDashboard
 } from 'lucide-react';
 import { fetchStockData, fetchAIScore, fetchAIVerdict } from './utils/api';
 import ScoreGauge from './components/ScoreGauge';
 import StockChart from './components/StockChart';
 import QuarterlyAnalysis from './components/QuarterlyAnalysis';
 import Watchlist from './components/Watchlist';
-import Portfolio from './components/Portfolio';
+import PortfolioDashboard from './components/portfolio/PortfolioDashboard';
+import PortfolioPage from './components/portfolio/PortfolioPage';
 import SearchModal from './components/SearchModal';
+import { usePortfolio } from './utils/usePortfolio';
 class ErrorBoundary extends React.Component {
   constructor(props) { super(props); this.state = { hasError: false, error: null }; }
   static getDerivedStateFromError(error) { return { hasError: true, error }; }
@@ -36,7 +39,9 @@ class ErrorBoundary extends React.Component {
 
 export default function App() {
   const [currentSymbol, setCurrentSymbol] = useState('E2E');
-  const [activeTab, setActiveTab] = useState('portfolio'); // 'analysis', 'watchlist', 'portfolio'
+  const [activeTab, setActiveTab] = useState('dashboard'); // 'dashboard', 'holdings', 'watchlist', 'analysis'
+  const [holdingsTab, setHoldingsTab] = useState('stocks');
+  const portfolio = usePortfolio();
   const [watchlist, setWatchlist] = useState(['E2E', 'TMCV', 'TATAMOTORS', 'INFY', 'ZOMATO', 'NETWEB', 'NVDA']);
   const [isSearchModalOpen, setIsSearchModalOpen] = useState(false);
   const [currentStock, setCurrentStock] = useState(null);
@@ -163,7 +168,7 @@ export default function App() {
       {/* Global Navbar */}
       <header className="sticky top-0 z-40 bg-background/85 backdrop-blur-xl border-b border-border/40 px-4 lg:px-8 py-2.5 flex items-center justify-between gap-4">
         {/* Brand Logo */}
-        <div className="flex items-center gap-3 cursor-pointer shrink-0" onClick={() => setActiveTab('portfolio')}>
+        <div className="flex items-center gap-3 cursor-pointer shrink-0" onClick={() => setActiveTab('dashboard')}>
           <div className="w-9 h-9 rounded-xl bg-card border border-border/60 flex items-center justify-center text-foreground font-black shadow-xs">
             <Zap className="w-4 h-4 text-foreground" />
           </div>
@@ -199,15 +204,26 @@ export default function App() {
         {/* Right Navigation Quick Buttons */}
         <div className="flex items-center gap-2 shrink-0">
           <button
-            onClick={() => setActiveTab('portfolio')}
+            onClick={() => setActiveTab('dashboard')}
             className={`px-3 py-1.5 rounded-full text-xs font-semibold flex items-center gap-1.5 border transition-all ${
-              activeTab === 'portfolio'
+              activeTab === 'dashboard'
+                ? 'bg-card text-foreground border-border/80 shadow-xs'
+                : 'bg-muted/60 text-muted-foreground border-border/40 hover:text-foreground hover:bg-muted'
+            }`}
+          >
+            <LayoutDashboard className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">Dashboard</span>
+          </button>
+          <button
+            onClick={() => setActiveTab('holdings')}
+            className={`px-3 py-1.5 rounded-full text-xs font-semibold flex items-center gap-1.5 border transition-all ${
+              activeTab === 'holdings' || activeTab === 'portfolio'
                 ? 'bg-card text-foreground border-border/80 shadow-xs'
                 : 'bg-muted/60 text-muted-foreground border-border/40 hover:text-foreground hover:bg-muted'
             }`}
           >
             <Briefcase className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">Portfolio</span>
+            <span className="hidden sm:inline">Holdings</span>
           </button>
           <button
             onClick={() => setActiveTab('watchlist')}
@@ -232,15 +248,27 @@ export default function App() {
         <div className="flex items-center justify-between border-b border-border/40 pb-3 gap-4 overflow-x-auto no-scrollbar">
           <div className="inline-flex items-center gap-1 bg-muted/60 p-1 rounded-full border border-border/40 shrink-0">
             <button
-              onClick={() => setActiveTab('portfolio')}
+              onClick={() => setActiveTab('dashboard')}
               className={`px-3.5 py-1.5 rounded-full text-xs font-semibold transition-all duration-200 flex items-center gap-1.5 ${
-                activeTab === 'portfolio'
+                activeTab === 'dashboard'
+                  ? 'bg-card text-foreground shadow-xs'
+                  : 'text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              <LayoutDashboard className="w-3.5 h-3.5" />
+              <span>Dashboard</span>
+            </button>
+
+            <button
+              onClick={() => setActiveTab('holdings')}
+              className={`px-3.5 py-1.5 rounded-full text-xs font-semibold transition-all duration-200 flex items-center gap-1.5 ${
+                activeTab === 'holdings' || activeTab === 'portfolio'
                   ? 'bg-card text-foreground shadow-xs'
                   : 'text-muted-foreground hover:text-foreground'
               }`}
             >
               <Briefcase className="w-3.5 h-3.5" />
-              <span>Portfolio</span>
+              <span>Holdings</span>
             </button>
 
             <button
@@ -289,9 +317,25 @@ export default function App() {
           </div>
         </div>
         {/* Tab Views */}
-        {activeTab === 'portfolio' ? (
-          <Portfolio
+        {activeTab === 'dashboard' ? (
+          <PortfolioDashboard
+            portfolioData={portfolio.portfolioData}
+            onNavigateToHoldings={(tab) => {
+              setHoldingsTab(tab);
+              setActiveTab('holdings');
+            }}
             onSelectStock={handleSelectStock}
+            onUploadBroker={portfolio.handleUploadBrokerSpreadsheet}
+            isBrokerUploading={portfolio.isBrokerUploading}
+            onExportCSV={portfolio.handleExportCSV}
+            onExportJSON={portfolio.handleExportJSON}
+            onLoadDemo={portfolio.handleLoadDemo}
+            onParseStatement={portfolio.handleParseStatement}
+          />
+        ) : (activeTab === 'holdings' || activeTab === 'portfolio') ? (
+          <PortfolioPage
+            onSelectStock={handleSelectStock}
+            initialTab={holdingsTab}
           />
         ) : activeTab === 'watchlist' ? (
           <Watchlist
