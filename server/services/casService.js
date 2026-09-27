@@ -162,19 +162,29 @@ export function mergeBrokerPrices(portfolio, brokerData) {
   }
 
   let matchedCount = 0;
+  const matchedISINs = new Set();
 
   const updateHolding = (item) => {
     const isin = (item.isin || '').toUpperCase();
     const brokerItem = brokerMap.get(isin);
     if (brokerItem && brokerItem.avg_buy_price > 0) {
       matchedCount++;
+      matchedISINs.add(isin);
       item.buy_price = brokerItem.avg_buy_price;
-      item.cost_basis = brokerItem.buy_value || Math.round((item.quantity || 0) * brokerItem.avg_buy_price * 100) / 100;
+
+      // Broker quantity takes precedence over CAS for stocks/ETFs
+      if (brokerItem.quantity > 0) {
+        item.quantity = brokerItem.quantity;
+      }
+
+      const qty = item.quantity || 0;
+      item.cost_basis = brokerItem.buy_value || Math.round(qty * brokerItem.avg_buy_price * 100) / 100;
       item.has_broker_buy_price = true;
       item.broker_name = brokerData.broker || 'Broker';
 
       const currentPrice = item.live_price ?? item.price ?? 0;
-      item.gain = Math.round((currentPrice - item.buy_price) * (item.quantity || 0) * 100) / 100;
+      item.live_value = Math.round(currentPrice * qty * 100) / 100;
+      item.gain = Math.round((currentPrice - item.buy_price) * qty * 100) / 100;
       item.gain_pct = item.buy_price > 0 ? Math.round(((currentPrice - item.buy_price) / item.buy_price) * 10000) / 100 : 0;
     }
   };
@@ -192,6 +202,39 @@ export function mergeBrokerPrices(portfolio, brokerData) {
     portfolio.bonds.forEach(updateHolding);
   }
 
+  // Add broker-only holdings (not present in CAS)
+  for (const [isin, brokerItem] of brokerMap) {
+    if (matchedISINs.has(isin)) continue;
+    if (!brokerItem.quantity || brokerItem.quantity <= 0) continue;
+
+    const costBasis = brokerItem.buy_value || Math.round(brokerItem.quantity * (brokerItem.avg_buy_price || 0) * 100) / 100;
+    const newHolding = {
+      isin: brokerItem.isin,
+      symbol: brokerItem.symbol || brokerItem.name || 'UNKNOWN',
+      name: brokerItem.name || brokerItem.symbol || 'Unknown Holding',
+      quantity: brokerItem.quantity,
+      price: brokerItem.avg_buy_price || 0,
+      buy_price: brokerItem.avg_buy_price || 0,
+      cost_basis: costBasis,
+      value: costBasis,
+      has_broker_buy_price: true,
+      broker_name: brokerData.broker || 'Broker',
+      subtype: 'DIRECT_STOCK',
+      asset_type: 'EQUITY',
+      broker_only: true
+    };
+
+    if (!Array.isArray(portfolio.stocks)) portfolio.stocks = [];
+    portfolio.stocks.push(newHolding);
+    matchedCount++;
+  }
+
+  // Re-derive sublists from updated stocks array
+  if (Array.isArray(portfolio.stocks)) {
+    portfolio.direct_stocks = portfolio.stocks.filter(s => s.subtype !== 'ETF');
+    portfolio.etfs = portfolio.stocks.filter(s => s.subtype === 'ETF');
+  }
+
   // Recalculate summary metrics
   const stocksList = portfolio.stocks || [];
   const stocksCostTotal = stocksList.reduce((sum, h) => {
@@ -199,12 +242,14 @@ export function mergeBrokerPrices(portfolio, brokerData) {
     return sum + ((h.price || 0) * (h.quantity || 0));
   }, 0);
 
-  const stocksLiveVal = portfolio.summary?.total_stocks_value || stocksList.reduce((sum, h) => sum + (h.live_value || h.value || 0), 0);
+  const stocksLiveVal = stocksList.reduce((sum, h) => sum + (h.live_value || h.value || 0), 0);
   const totalGain = Math.round((stocksLiveVal - stocksCostTotal) * 100) / 100;
   const totalGainPct = stocksCostTotal > 0 ? Math.round((totalGain / stocksCostTotal) * 10000) / 100 : 0;
 
   portfolio.summary = {
     ...portfolio.summary,
+    total_stocks_value: Math.round(stocksLiveVal * 100) / 100,
+    total_positions: stocksList.length,
     unrealized_gain: totalGain,
     unrealized_gain_pct: totalGainPct,
     total_stocks_invested: Math.round(stocksCostTotal * 100) / 100,

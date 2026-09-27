@@ -174,20 +174,28 @@ export default function PortfolioPage({ onSelectStock }) {
         }
 
         let matched = 0;
+        const matchedISINs = new Set();
+
         const enrichList = (list) => (list || []).map(item => {
           const isin = (item.isin || '').toUpperCase();
           const b = brokerMap.get(isin);
           if (b && b.avg_buy_price > 0) {
             matched++;
+            matchedISINs.add(isin);
+            // Broker quantity takes precedence
+            const qty = (b.quantity > 0) ? b.quantity : (item.quantity || 0);
             const curPrice = item.live_price ?? item.price ?? 0;
             const buyPrice = b.avg_buy_price;
-            const costBasis = b.buy_value || Math.round((item.quantity || 0) * buyPrice * 100) / 100;
-            const gain = Math.round((curPrice - buyPrice) * (item.quantity || 0) * 100) / 100;
+            const costBasis = b.buy_value || Math.round(qty * buyPrice * 100) / 100;
+            const liveValue = Math.round(curPrice * qty * 100) / 100;
+            const gain = Math.round((curPrice - buyPrice) * qty * 100) / 100;
             const gainPct = buyPrice > 0 ? Math.round(((curPrice - buyPrice) / buyPrice) * 10000) / 100 : 0;
             return {
               ...item,
+              quantity: qty,
               buy_price: buyPrice,
               cost_basis: costBasis,
+              live_value: liveValue,
               gain,
               gain_pct: gainPct,
               has_broker_buy_price: true,
@@ -197,13 +205,38 @@ export default function PortfolioPage({ onSelectStock }) {
           return item;
         });
 
-        const newStocks = enrichList(portfolioData.stocks || portfolioData.holdings);
-        const newDirect = enrichList(portfolioData.direct_stocks);
-        const newEtfs = enrichList(portfolioData.etfs);
+        let newStocks = enrichList(portfolioData.stocks || portfolioData.holdings);
         const newBonds = enrichList(portfolioData.bonds);
 
+        // Add broker-only holdings not in CAS
+        for (const [isin, b] of brokerMap) {
+          if (matchedISINs.has(isin)) continue;
+          if (!b.quantity || b.quantity <= 0) continue;
+          const costBasis = b.buy_value || Math.round(b.quantity * (b.avg_buy_price || 0) * 100) / 100;
+          newStocks.push({
+            isin: b.isin,
+            symbol: b.symbol || b.name || 'UNKNOWN',
+            name: b.name || b.symbol || 'Unknown Holding',
+            quantity: b.quantity,
+            price: b.avg_buy_price || 0,
+            buy_price: b.avg_buy_price || 0,
+            cost_basis: costBasis,
+            value: costBasis,
+            has_broker_buy_price: true,
+            broker_name: res.broker_data.broker || 'Broker',
+            subtype: 'DIRECT_STOCK',
+            asset_type: 'EQUITY',
+            broker_only: true
+          });
+          matched++;
+        }
+
+        // Re-derive sublists from updated stocks
+        const newDirect = newStocks.filter(s => s.subtype !== 'ETF');
+        const newEtfs = newStocks.filter(s => s.subtype === 'ETF');
+
         const totalCost = newStocks.reduce((sum, h) => sum + (h.has_broker_buy_price ? h.cost_basis : ((h.price || 0) * (h.quantity || 0))), 0);
-        const totalLive = portfolioData.summary?.total_stocks_value || newStocks.reduce((sum, h) => sum + (h.live_value || h.value || 0), 0);
+        const totalLive = newStocks.reduce((sum, h) => sum + (h.live_value || h.value || 0), 0);
         const netGain = Math.round((totalLive - totalCost) * 100) / 100;
         const netGainPct = totalCost > 0 ? Math.round((netGain / totalCost) * 10000) / 100 : 0;
 
@@ -215,6 +248,8 @@ export default function PortfolioPage({ onSelectStock }) {
           bonds: newBonds,
           summary: {
             ...portfolioData.summary,
+            total_stocks_value: Math.round(totalLive * 100) / 100,
+            total_positions: newStocks.length,
             unrealized_gain: netGain,
             unrealized_gain_pct: netGainPct,
             total_stocks_invested: Math.round(totalCost * 100) / 100,
@@ -428,6 +463,7 @@ export default function PortfolioPage({ onSelectStock }) {
               etfs={etfsList}
               searchQuery={searchQuery}
               onSelectStock={onSelectStock}
+              summary={summary}
             />
           )}
 

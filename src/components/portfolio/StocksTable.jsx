@@ -6,7 +6,8 @@ export default function StocksTable({
   directStocks = [],
   etfs = [],
   searchQuery = '',
-  onSelectStock = () => {}
+  onSelectStock = () => {},
+  summary = {}
 }) {
   const [subfilter, setSubfilter] = useState('all'); // 'all' | 'direct' | 'etf'
   const [sortField, setSortField] = useState('value');
@@ -24,6 +25,20 @@ export default function StocksTable({
   const hasBrokerData = useMemo(() => {
     return stocks.some(s => s.has_broker_buy_price);
   }, [stocks]);
+
+  const stocksCurrentVal = useMemo(() => {
+    return stocks.reduce((sum, s) => sum + (s.live_value || s.value || 0), 0);
+  }, [stocks]);
+
+  const stocksCostTotal = useMemo(() => {
+    return stocks.reduce((sum, s) => {
+      if (s.has_broker_buy_price) return sum + (s.cost_basis || 0);
+      return sum + ((s.price || 0) * (s.quantity || 0));
+    }, 0);
+  }, [stocks]);
+
+  const stocksGainTotal = stocksCurrentVal - stocksCostTotal;
+  const stocksGainPct = stocksCostTotal > 0 ? (stocksGainTotal / stocksCostTotal) * 100 : 0;
 
   // Filter & sort
   const filteredStocks = useMemo(() => {
@@ -61,6 +76,54 @@ export default function StocksTable({
 
   return (
     <div className="space-y-4">
+      {/* ── SUMMARY HIGHLIGHT STRIP ── */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        {/* Card 1: Valuation */}
+        <div className="space-y-1.5">
+          <div className="text-[11px] font-semibold text-muted-foreground tracking-wider uppercase px-0.5">
+            Total Stocks & ETFs Valuation
+          </div>
+          <div className="glass-card p-4 space-y-0.5">
+            <div className="font-serif text-xl font-bold text-success">
+              ₹{stocksCurrentVal.toLocaleString('en-IN', { maximumFractionDigits: 2 })}
+            </div>
+            <div className="text-xs text-muted-foreground">
+              {stocks.length} Active Positions
+            </div>
+          </div>
+        </div>
+
+        {/* Card 2: Cost Basis */}
+        <div className="space-y-1.5">
+          <div className="text-[11px] font-semibold text-muted-foreground tracking-wider uppercase px-0.5">
+            Total Invested Cost Basis
+          </div>
+          <div className="glass-card p-4 space-y-0.5">
+            <div className="font-mono text-xl font-bold text-foreground">
+              ₹{stocksCostTotal.toLocaleString('en-IN', { maximumFractionDigits: 2 })}
+            </div>
+            <div className="text-xs text-muted-foreground">
+              {hasBrokerData ? 'Broker avg buy price' : 'From CAS statement'}
+            </div>
+          </div>
+        </div>
+
+        {/* Card 3: Unrealized Gain */}
+        <div className="space-y-1.5">
+          <div className="text-[11px] font-semibold text-muted-foreground tracking-wider uppercase px-0.5">
+            Unrealized Profit & Return
+          </div>
+          <div className="glass-card p-4 space-y-0.5">
+            <div className={`font-mono text-xl font-bold ${stocksGainTotal >= 0 ? 'text-success' : 'text-destructive'}`}>
+              {stocksGainTotal >= 0 ? '+' : ''}₹{Math.abs(stocksGainTotal).toLocaleString('en-IN', { maximumFractionDigits: 2 })}
+            </div>
+            <div className={`text-xs font-medium ${stocksGainPct >= 0 ? 'text-success' : 'text-destructive'}`}>
+              {stocksGainPct >= 0 ? '+' : ''}{stocksGainPct.toFixed(2)}% overall return
+            </div>
+          </div>
+        </div>
+      </div>
+
       {/* ── SUB-FILTER PILLS BAR ── */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 px-0.5">
         <div className="inline-flex items-center gap-1 bg-muted/60 p-1 rounded-full border border-border/40">

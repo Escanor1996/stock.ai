@@ -36,7 +36,7 @@ class ErrorBoundary extends React.Component {
 
 export default function App() {
   const [currentSymbol, setCurrentSymbol] = useState('E2E');
-  const [activeTab, setActiveTab] = useState('watchlist'); // 'analysis', 'watchlist'
+  const [activeTab, setActiveTab] = useState('portfolio'); // 'analysis', 'watchlist', 'portfolio'
   const [watchlist, setWatchlist] = useState(['E2E', 'TMCV', 'TATAMOTORS', 'INFY', 'ZOMATO', 'NETWEB', 'NVDA']);
   const [isSearchModalOpen, setIsSearchModalOpen] = useState(false);
   const [currentStock, setCurrentStock] = useState(null);
@@ -163,7 +163,7 @@ export default function App() {
       {/* Global Navbar */}
       <header className="sticky top-0 z-40 bg-background/85 backdrop-blur-xl border-b border-border/40 px-4 lg:px-8 py-2.5 flex items-center justify-between gap-4">
         {/* Brand Logo */}
-        <div className="flex items-center gap-3 cursor-pointer shrink-0" onClick={() => setActiveTab('watchlist')}>
+        <div className="flex items-center gap-3 cursor-pointer shrink-0" onClick={() => setActiveTab('portfolio')}>
           <div className="w-9 h-9 rounded-xl bg-card border border-border/60 flex items-center justify-center text-foreground font-black shadow-xs">
             <Zap className="w-4 h-4 text-foreground" />
           </div>
@@ -302,8 +302,8 @@ export default function App() {
           />
         ) : isLoading || !currentStock ? (
           <div className="flex flex-col items-center justify-center py-20 space-y-4">
-            <div className="w-10 h-10 border-4 border-emerald-500 border-t-transparent rounded-full animate-spin"></div>
-            <p className="text-sm font-bold text-slate-400 animate-pulse">Fetching live data for {currentSymbol}...</p>
+            <div className="w-10 h-10 border-4 border-foreground border-t-transparent rounded-full animate-spin"></div>
+            <p className="text-sm font-bold text-muted-foreground animate-pulse">Fetching live data for {currentSymbol}...</p>
           </div>
         ) : (
           <ErrorBoundary>

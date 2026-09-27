@@ -107,9 +107,9 @@ export default function Watchlist({ watchlist, onRemoveFromWatchlist, onAddToWat
       return <ArrowUpDown className="w-3 h-3 text-zinc-600 group-hover:text-zinc-400 ml-1 inline" />;
     }
     return sortDirection === 'desc' ? (
-      <ArrowDown className="w-3 h-3 text-emerald-400 ml-1 inline" />
+      <ArrowDown className="w-3 h-3 text-success ml-1 inline" />
     ) : (
-      <ArrowUp className="w-3 h-3 text-emerald-400 ml-1 inline" />
+      <ArrowUp className="w-3 h-3 text-success ml-1 inline" />
     );
   };
 
