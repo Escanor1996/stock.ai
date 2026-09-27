@@ -143,7 +143,7 @@ export async function parseBrokerSpreadsheet(filePath) {
     }
     throw new Error(err.message || 'Failed to parse broker spreadsheet');
   } finally {
-    if (filePath && fs.existsSync(filePath)) {
+    if (filePath && filePath.includes('uploads') && fs.existsSync(filePath)) {
       try { fs.unlinkSync(filePath); } catch (_) {}
     }
   }
@@ -153,6 +153,23 @@ export async function parseBrokerSpreadsheet(filePath) {
  * Merges broker average buy prices into the CAS portfolio.
  * Keeps all other CAS data unchanged, but accurately computes true P&L and cost basis.
  */
+function isSGBorBondItem(item) {
+  const isin = (item.isin || '').toUpperCase();
+  const name = (item.name || '').toUpperCase();
+  const symbol = (item.symbol || '').toUpperCase();
+  return (
+    isin.startsWith('IN0') ||
+    item.subtype === 'SGB' ||
+    item.subtype === 'BOND' ||
+    name.includes('SGB') ||
+    name.includes('GOLDBOND') ||
+    name.includes('SOVEREIGN GOLD') ||
+    name.includes('NCD') ||
+    name.includes('BOND') ||
+    symbol.includes('SGB')
+  );
+}
+
 export function mergeBrokerPrices(portfolio, brokerData) {
   if (!portfolio || !brokerData?.holdings) return portfolio;
 
@@ -164,99 +181,195 @@ export function mergeBrokerPrices(portfolio, brokerData) {
   let matchedCount = 0;
   const matchedISINs = new Set();
 
-  const updateHolding = (item) => {
+  // 1. Update Bonds & Sovereign Gold Bonds (SGBs) using broker statement prices
+  const bondsList = portfolio.bonds || [];
+  bondsList.forEach(item => {
     const isin = (item.isin || '').toUpperCase();
-    const brokerItem = brokerMap.get(isin);
-    if (brokerItem && brokerItem.avg_buy_price > 0) {
-      matchedCount++;
+    const b = brokerMap.get(isin);
+    if (b) {
       matchedISINs.add(isin);
-      item.buy_price = brokerItem.avg_buy_price;
-
-      // Broker quantity takes precedence over CAS for stocks/ETFs
-      if (brokerItem.quantity > 0) {
-        item.quantity = brokerItem.quantity;
-      }
-
+      matchedCount++;
+      if (b.quantity > 0) item.quantity = b.quantity;
       const qty = item.quantity || 0;
-      item.cost_basis = brokerItem.buy_value || Math.round(qty * brokerItem.avg_buy_price * 100) / 100;
+      item.buy_price = b.avg_buy_price || item.price || 0;
+      item.cost_basis = b.buy_value || Math.round(qty * item.buy_price * 100) / 100;
       item.has_broker_buy_price = true;
       item.broker_name = brokerData.broker || 'Broker';
 
-      const currentPrice = item.live_price ?? item.price ?? 0;
-      item.live_value = Math.round(currentPrice * qty * 100) / 100;
-      item.gain = Math.round((currentPrice - item.buy_price) * qty * 100) / 100;
-      item.gain_pct = item.buy_price > 0 ? Math.round(((currentPrice - item.buy_price) / item.buy_price) * 10000) / 100 : 0;
+      // SGB gain calculation from broker statement prices
+      const currentPrice = b.closing_price || item.live_price || item.price || 0;
+      item.live_price = currentPrice;
+      item.closing_price = b.closing_price || currentPrice;
+      item.value = b.closing_value || Math.round(qty * currentPrice * 100) / 100;
+      item.live_value = item.value;
+      item.gain = (b.pnl !== null && b.pnl !== undefined) ? b.pnl : Math.round((item.value - item.cost_basis) * 100) / 100;
+      item.gain_pct = item.cost_basis > 0 ? Math.round((item.gain / item.cost_basis) * 10000) / 100 : 0;
     }
-  };
+  });
 
-  if (Array.isArray(portfolio.stocks)) {
-    portfolio.stocks.forEach(updateHolding);
-  }
-  if (Array.isArray(portfolio.direct_stocks)) {
-    portfolio.direct_stocks.forEach(updateHolding);
-  }
-  if (Array.isArray(portfolio.etfs)) {
-    portfolio.etfs.forEach(updateHolding);
-  }
-  if (Array.isArray(portfolio.bonds)) {
-    portfolio.bonds.forEach(updateHolding);
-  }
-
-  // Add broker-only holdings (not present in CAS)
-  for (const [isin, brokerItem] of brokerMap) {
+  // Ingest broker SGB/Bond holdings not present in CAS
+  for (const [isin, b] of brokerMap) {
     if (matchedISINs.has(isin)) continue;
-    if (!brokerItem.quantity || brokerItem.quantity <= 0) continue;
+    if (isSGBorBondItem(b) && b.quantity > 0) {
+      matchedISINs.add(isin);
+      matchedCount++;
+      const isSgb = isin.startsWith('IN0') || (b.name || '').toUpperCase().includes('SGB') || (b.name || '').toUpperCase().includes('GOLDBOND');
+      const qty = b.quantity || 0;
+      const buyPrice = b.avg_buy_price || 0;
+      const costBasis = b.buy_value || Math.round(qty * buyPrice * 100) / 100;
+      const curPrice = b.closing_price || buyPrice;
+      const curVal = b.closing_value || Math.round(qty * curPrice * 100) / 100;
+      const gain = (b.pnl !== null && b.pnl !== undefined) ? b.pnl : Math.round((curVal - costBasis) * 100) / 100;
+      const gainPct = costBasis > 0 ? Math.round((gain / costBasis) * 10000) / 100 : 0;
 
-    const costBasis = brokerItem.buy_value || Math.round(brokerItem.quantity * (brokerItem.avg_buy_price || 0) * 100) / 100;
-    const newHolding = {
-      isin: brokerItem.isin,
-      symbol: brokerItem.symbol || brokerItem.name || 'UNKNOWN',
-      name: brokerItem.name || brokerItem.symbol || 'Unknown Holding',
-      quantity: brokerItem.quantity,
-      price: brokerItem.avg_buy_price || 0,
-      buy_price: brokerItem.avg_buy_price || 0,
+      bondsList.push({
+        isin: b.isin,
+        symbol: b.symbol || (isSgb ? 'SGB' : 'BOND'),
+        name: b.name || (isSgb ? 'Sovereign Gold Bond' : 'Bond'),
+        quantity: qty,
+        price: curPrice,
+        buy_price: buyPrice,
+        cost_basis: costBasis,
+        closing_price: b.closing_price,
+        live_price: curPrice,
+        value: curVal,
+        live_value: curVal,
+        gain,
+        gain_pct: gainPct,
+        category: 'BONDS_DEBT',
+        subtype: isSgb ? 'SGB' : 'BOND',
+        asset_type: 'BOND',
+        has_broker_buy_price: true,
+        broker_name: brokerData.broker || 'Broker',
+        broker_only: true
+      });
+    }
+  }
+  portfolio.bonds = bondsList;
+
+  // 2. Update Stocks & ETFs (Equities)
+  // Broker spreadsheet is authoritative for active stock & ETF holdings.
+  // If a stock was in CAS but absent from broker statement (e.g. MASPTOP50), it has been SOLD -> omit from active holdings.
+  const oldStocks = portfolio.stocks || [];
+  const activeStocks = [];
+
+  for (const item of oldStocks) {
+    const isin = (item.isin || '').toUpperCase();
+    const b = brokerMap.get(isin);
+    if (b && b.quantity > 0) {
+      matchedISINs.add(isin);
+      matchedCount++;
+      item.quantity = b.quantity;
+      item.buy_price = b.avg_buy_price;
+      item.cost_basis = b.buy_value || Math.round(b.quantity * b.avg_buy_price * 100) / 100;
+      item.has_broker_buy_price = true;
+      item.broker_name = brokerData.broker || 'Broker';
+
+      if (!item.live_price && b.closing_price > 0) item.live_price = b.closing_price;
+      item.closing_price = b.closing_price;
+      const curPrice = item.live_price ?? b.closing_price ?? item.price ?? 0;
+      item.live_value = b.closing_value || Math.round(curPrice * item.quantity * 100) / 100;
+      item.gain = (b.pnl !== null && b.pnl !== undefined) ? b.pnl : Math.round((curPrice - item.buy_price) * item.quantity * 100) / 100;
+      item.gain_pct = item.buy_price > 0 ? Math.round(((curPrice - item.buy_price) / item.buy_price) * 10000) / 100 : 0;
+      activeStocks.push(item);
+    }
+  }
+
+  // Add broker equity holdings not present in CAS
+  for (const [isin, b] of brokerMap) {
+    if (matchedISINs.has(isin)) continue;
+    if (isSGBorBondItem(b)) continue;
+    if (!b.quantity || b.quantity <= 0) continue;
+
+    const isEtf = isin.startsWith('INF') || (b.name || '').toUpperCase().includes('ETF') || (b.name || '').toUpperCase().includes('BEES') || (b.symbol || '').toUpperCase().includes('BEES');
+    const buyPrice = b.avg_buy_price || 0;
+    const costBasis = b.buy_value || Math.round(b.quantity * buyPrice * 100) / 100;
+    const curPrice = b.closing_price || buyPrice;
+    const curVal = b.closing_value || Math.round(b.quantity * curPrice * 100) / 100;
+    const gain = (b.pnl !== null && b.pnl !== undefined) ? b.pnl : Math.round((curVal - costBasis) * 100) / 100;
+    const gainPct = costBasis > 0 ? Math.round((gain / costBasis) * 10000) / 100 : 0;
+
+    activeStocks.push({
+      isin: b.isin,
+      symbol: b.symbol || b.name || 'UNKNOWN',
+      name: b.name || b.symbol || 'Unknown Holding',
+      quantity: b.quantity,
+      price: curPrice,
+      live_price: b.closing_price || curPrice,
+      buy_price: buyPrice,
       cost_basis: costBasis,
-      value: costBasis,
+      value: curVal,
+      live_value: curVal,
+      gain,
+      gain_pct: gainPct,
       has_broker_buy_price: true,
       broker_name: brokerData.broker || 'Broker',
-      subtype: 'DIRECT_STOCK',
+      subtype: isEtf ? 'ETF' : 'DIRECT_STOCK',
       asset_type: 'EQUITY',
       broker_only: true
-    };
-
-    if (!Array.isArray(portfolio.stocks)) portfolio.stocks = [];
-    portfolio.stocks.push(newHolding);
+    });
+    matchedISINs.add(isin);
     matchedCount++;
   }
 
-  // Re-derive sublists from updated stocks array
-  if (Array.isArray(portfolio.stocks)) {
-    portfolio.direct_stocks = portfolio.stocks.filter(s => s.subtype !== 'ETF');
-    portfolio.etfs = portfolio.stocks.filter(s => s.subtype === 'ETF');
+  portfolio.stocks = activeStocks;
+  portfolio.direct_stocks = activeStocks.filter(s => s.subtype !== 'ETF');
+  portfolio.etfs = activeStocks.filter(s => s.subtype === 'ETF');
+
+  // 3. Recalculate summary metrics across stocks and bonds
+  const stocksCostTotal = portfolio.stocks.reduce((sum, h) => sum + (h.cost_basis || ((h.price || 0) * (h.quantity || 0))), 0);
+  const stocksLiveVal = portfolio.stocks.reduce((sum, h) => sum + (h.live_value || h.value || 0), 0);
+  const stocksGain = portfolio.stocks.reduce((sum, h) => sum + (h.gain || 0), 0);
+
+  const bondsCostTotal = (portfolio.bonds || []).reduce((sum, b) => sum + (b.cost_basis || ((b.price || 0) * (b.quantity || 0))), 0);
+  const bondsLiveVal = (portfolio.bonds || []).reduce((sum, b) => sum + (b.live_value || b.value || 0), 0);
+  const bondsGain = (portfolio.bonds || []).reduce((sum, b) => sum + (b.gain || 0), 0);
+
+  const totalMfVal = (portfolio.mutual_funds || []).reduce((sum, m) => sum + (m.value || 0), 0);
+  const totalPortfolioVal = stocksLiveVal + totalMfVal + bondsLiveVal;
+  const totalBrokerInvested = stocksCostTotal + bondsCostTotal;
+  const totalGain = Math.round((stocksGain + bondsGain) * 100) / 100;
+  const totalGainPct = totalBrokerInvested > 0 ? Math.round((totalGain / totalBrokerInvested) * 10000) / 100 : 0;
+
+  // Recalculate weights
+  if (stocksLiveVal > 0) {
+    portfolio.stocks.forEach(h => {
+      const val = h.live_value || h.value || 0;
+      h.weight_pct = Math.round((val / stocksLiveVal) * 10000) / 100;
+      if (totalPortfolioVal > 0) {
+        h.total_weight_pct = Math.round((val / totalPortfolioVal) * 10000) / 100;
+      }
+    });
   }
-
-  // Recalculate summary metrics
-  const stocksList = portfolio.stocks || [];
-  const stocksCostTotal = stocksList.reduce((sum, h) => {
-    if (h.has_broker_buy_price) return sum + (h.cost_basis || 0);
-    return sum + ((h.price || 0) * (h.quantity || 0));
-  }, 0);
-
-  const stocksLiveVal = stocksList.reduce((sum, h) => sum + (h.live_value || h.value || 0), 0);
-  const totalGain = Math.round((stocksLiveVal - stocksCostTotal) * 100) / 100;
-  const totalGainPct = stocksCostTotal > 0 ? Math.round((totalGain / stocksCostTotal) * 10000) / 100 : 0;
+  if (bondsLiveVal > 0) {
+    (portfolio.bonds || []).forEach(b => {
+      const val = b.live_value || b.value || 0;
+      b.weight_pct = Math.round((val / bondsLiveVal) * 10000) / 100;
+      if (totalPortfolioVal > 0) {
+        b.total_weight_pct = Math.round((val / totalPortfolioVal) * 10000) / 100;
+      }
+    });
+  }
 
   portfolio.summary = {
     ...portfolio.summary,
+    total_portfolio_value: Math.round(totalPortfolioVal * 100) / 100,
     total_stocks_value: Math.round(stocksLiveVal * 100) / 100,
-    total_positions: stocksList.length,
+    total_bonds_value: Math.round(bondsLiveVal * 100) / 100,
+    total_positions: portfolio.stocks.length,
     unrealized_gain: totalGain,
     unrealized_gain_pct: totalGainPct,
+    stocks_unrealized_gain: Math.round(stocksGain * 100) / 100,
+    bonds_unrealized_gain: Math.round(bondsGain * 100) / 100,
     total_stocks_invested: Math.round(stocksCostTotal * 100) / 100,
+    total_bonds_invested: Math.round(bondsCostTotal * 100) / 100,
     broker_source: brokerData.broker,
     broker_client_code: brokerData.client_code,
     broker_enriched_count: matchedCount,
-    broker_total_positions: brokerData.total_positions
+    broker_total_positions: brokerData.total_positions,
+    broker_total_invested: brokerData.total_invested_value,
+    broker_total_closing: brokerData.total_closing_value,
+    broker_total_pnl: brokerData.total_unrealised_pnl
   };
 
   return portfolio;

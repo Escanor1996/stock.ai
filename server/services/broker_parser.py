@@ -50,7 +50,10 @@ def identify_columns(headers):
         'symbol': None,
         'quantity': None,
         'avg_buy_price': None,
-        'buy_value': None
+        'buy_value': None,
+        'closing_price': None,
+        'closing_value': None,
+        'pnl': None
     }
 
     lower_headers = [str(h or '').strip().lower() for h in headers]
@@ -82,6 +85,18 @@ def identify_columns(headers):
         elif any(k in h for k in ['symbol', 'ticker', 'instrument', 'scrip']):
             if mapping['symbol'] is None:
                 mapping['symbol'] = idx
+        # Closing Price / Current Price / LTP / CMP
+        elif any(k in h for k in ['closing price', 'close price', 'current price', 'market price', 'ltp', 'cmp', 'last price', 'latest price', 'cur price', 'current rate']):
+            if mapping['closing_price'] is None:
+                mapping['closing_price'] = idx
+        # Closing Value / Current Value / Holding Value
+        elif any(k in h for k in ['closing value', 'close value', 'current value', 'cur. val', 'cur val', 'market value', 'holding value', 'cur value', 'current val', 'total val']):
+            if mapping['closing_value'] is None:
+                mapping['closing_value'] = idx
+        # P&L / Returns / Unrealized Gain
+        elif any(k in h for k in ['unrealised p&l', 'unrealized p&l', 'unrealised pnl', 'unrealized pnl', 'p&l', 'pnl', 'returns', 'total return', 'profit/loss', 'gain']):
+            if mapping['pnl'] is None:
+                mapping['pnl'] = idx
 
     return mapping
 
@@ -145,6 +160,8 @@ def parse_table_rows(rows, file_name=""):
     broker = detect_broker(rows[:10], file_name)
     client_code = None
     invested_summary = None
+    closing_summary = None
+    pnl_summary = None
 
     # Search for client code or summary headers in metadata rows
     for r in rows[:12]:
@@ -155,7 +172,12 @@ def parse_table_rows(rows, file_name=""):
         m_inv = re.search(r'(?:Invested Value|Total Investment)[:\s]+([\d,\.]+)', row_str, re.IGNORECASE)
         if m_inv:
             invested_summary = clean_num(m_inv.group(1))
-
+        m_close = re.search(r'(?:Closing Value|Current Value|Total Current Value)[:\s]+([\d,\.]+)', row_str, re.IGNORECASE)
+        if m_close:
+            closing_summary = clean_num(m_close.group(1))
+        m_pnl = re.search(r'(?:Unrealised P&L|Unrealized P&L|Total P&L)[:\s]+([\d,\.\-]+)', row_str, re.IGNORECASE)
+        if m_pnl:
+            pnl_summary = clean_num(m_pnl.group(1))
     # Find the header row by searching for ISIN or Symbol keywords
     header_row_idx = None
     col_mapping = None
@@ -227,6 +249,29 @@ def parse_table_rows(rows, file_name=""):
         elif avg_price <= 0 and qty > 0 and buy_val > 0:
             avg_price = round(buy_val / qty, 2)
 
+
+        # Closing Price / Current Price / LTP
+        closing_price = 0.0
+        if col_mapping['closing_price'] is not None and col_mapping['closing_price'] < len(r):
+            closing_price = clean_num(r[col_mapping['closing_price']])
+
+        # Closing Value / Current Value
+        closing_val = 0.0
+        if col_mapping['closing_value'] is not None and col_mapping['closing_value'] < len(r):
+            closing_val = clean_num(r[col_mapping['closing_value']])
+        if closing_val <= 0 and closing_price > 0 and qty > 0:
+            closing_val = round(qty * closing_price, 2)
+        elif closing_price <= 0 and closing_val > 0 and qty > 0:
+            closing_price = round(closing_val / qty, 2)
+
+        # P&L / Returns
+        pnl_val = None
+        if col_mapping['pnl'] is not None and col_mapping['pnl'] < len(r):
+            raw_pnl = r[col_mapping['pnl']]
+            if raw_pnl is not None and str(raw_pnl).strip() != '':
+                pnl_val = clean_num(raw_pnl)
+        if pnl_val is None and closing_val > 0 and buy_val > 0:
+            pnl_val = round(closing_val - buy_val, 2)
         # Name & Symbol
         name = ""
         if col_mapping['name'] is not None and col_mapping['name'] < len(r):
@@ -248,10 +293,15 @@ def parse_table_rows(rows, file_name=""):
             'symbol': symbol,
             'quantity': qty,
             'avg_buy_price': round(avg_price, 2),
-            'buy_value': round(buy_val, 2)
+            'buy_value': round(buy_val, 2),
+            'closing_price': round(closing_price, 2) if closing_price > 0 else None,
+            'closing_value': round(closing_val, 2) if closing_val > 0 else None,
+            'pnl': round(pnl_val, 2) if pnl_val is not None else None
         })
 
     total_buy_val = sum(h['buy_value'] for h in holdings)
+    total_close_val = sum(h['closing_value'] or 0 for h in holdings)
+    total_pnl_val = sum(h['pnl'] or 0 for h in holdings)
 
     return {
         'success': True,
@@ -259,6 +309,8 @@ def parse_table_rows(rows, file_name=""):
         'client_code': client_code,
         'total_positions': len(holdings),
         'total_invested_value': round(invested_summary or total_buy_val, 2),
+        'total_closing_value': round(closing_summary or total_close_val, 2),
+        'total_unrealised_pnl': round(pnl_summary if pnl_summary is not None else total_pnl_val, 2),
         'holdings': holdings
     }
 

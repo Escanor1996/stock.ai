@@ -10,3 +10,5 @@ SESSION_STATE.md
 server/venv/
 uploads/
 temp/
+__pycache__/
+*.pyc
