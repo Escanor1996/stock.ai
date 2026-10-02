@@ -50,7 +50,11 @@ function normalizeHolding(item) {
   } else if (item.isin === 'INE285K01026' || sym === 'TECHNO') {
     sym = 'TECHNOE';
   }
-  return { ...item, symbol: sym, name };
+  const hasBrokerBuyPrice = Boolean(item.has_broker_buy_price || (item.cost_basis !== undefined && item.cost_basis !== null && item.cost_basis > 0));
+  const buyPrice = item.buy_price && item.buy_price > 0
+    ? item.buy_price
+    : (hasBrokerBuyPrice && item.quantity > 0 ? Math.round((item.cost_basis / item.quantity) * 100) / 100 : item.price);
+  return { ...item, symbol: sym, name, has_broker_buy_price: hasBrokerBuyPrice, buy_price: buyPrice };
 }
 
 export function usePortfolio() {

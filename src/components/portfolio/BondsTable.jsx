@@ -6,11 +6,22 @@ export default function BondsTable({ bonds = [] }) {
   const bondsVal = useMemo(() => bonds.reduce((sum, b) => sum + (b.live_value || b.value || 0), 0), [bonds]);
   const bondsCostTotal = useMemo(() => {
     return bonds.reduce((sum, b) => {
-      if (b.has_broker_buy_price) return sum + (b.cost_basis || 0);
-      return sum + ((b.price || 0) * (b.quantity || 0));
+      if (b.cost_basis !== undefined && b.cost_basis !== null && b.cost_basis > 0) {
+        return sum + b.cost_basis;
+      }
+      return sum + ((b.buy_price || b.price || 0) * (b.quantity || 0));
     }, 0);
   }, [bonds]);
-  const bondsGainTotal = useMemo(() => bonds.reduce((sum, b) => sum + (b.gain || 0), 0), [bonds]);
+  const bondsGainTotal = useMemo(() => {
+    return bonds.reduce((sum, b) => {
+      if (b.gain !== undefined && b.gain !== null) {
+        return sum + b.gain;
+      }
+      const val = b.live_value ?? b.value ?? 0;
+      const cost = b.cost_basis || ((b.buy_price || b.price || 0) * (b.quantity || 0));
+      return sum + (val - cost);
+    }, 0);
+  }, [bonds]);
   const bondsGainPct = bondsCostTotal > 0 ? (bondsGainTotal / bondsCostTotal) * 100 : 0;
 
   if (!bonds || bonds.length === 0) {
@@ -65,12 +76,18 @@ export default function BondsTable({ bonds = [] }) {
 
           <tbody className="divide-y divide-border/20">
             {bonds.map((bd, idx) => {
-              const buyPrice = bd.has_broker_buy_price && bd.buy_price > 0 ? bd.buy_price : bd.price;
+              const holdingVal = bd.live_value ?? bd.value ?? 0;
               const currentPrice = bd.closing_price || bd.live_price || bd.price || 0;
-              const holdingVal = bd.live_value || bd.value || 0;
-              const costBasis = bd.cost_basis || (buyPrice * (bd.quantity || 0));
-              const gainVal = bd.gain !== undefined ? bd.gain : (holdingVal - costBasis);
-              const gainPctVal = bd.gain_pct !== undefined ? bd.gain_pct : (costBasis > 0 ? (gainVal / costBasis) * 100 : 0);
+              const costBasis = bd.cost_basis !== undefined && bd.cost_basis !== null && bd.cost_basis > 0
+                ? bd.cost_basis
+                : ((bd.buy_price || bd.price || 0) * (bd.quantity || 0));
+              const buyPrice = bd.buy_price && bd.buy_price > 0
+                ? bd.buy_price
+                : (bd.quantity > 0 && costBasis > 0 ? Math.round((costBasis / bd.quantity) * 100) / 100 : bd.price);
+              const gainVal = bd.gain !== undefined && bd.gain !== null ? bd.gain : (holdingVal - costBasis);
+              const gainPctVal = bd.gain_pct !== undefined && bd.gain_pct !== null
+                ? bd.gain_pct
+                : (costBasis > 0 ? (gainVal / costBasis) * 100 : 0);
               const isGain = gainVal >= 0;
 
               return (
@@ -100,13 +117,13 @@ export default function BondsTable({ bonds = [] }) {
 
                   {/* Returns */}
                   <td className="py-4 px-5 text-right">
-                    {bd.has_broker_buy_price || bd.gain !== undefined ? (
+                    {gainVal !== undefined ? (
                       <div>
                         <div className={`font-mono text-sm font-medium ${isGain ? 'text-success' : 'text-destructive'}`}>
                           {isGain ? '+' : '-'}{fmt(gainVal)}
                         </div>
                         <div className={`text-[11px] font-mono font-medium mt-0.5 ${isGain ? 'text-success' : 'text-destructive'}`}>
-                          {gainPctVal.toFixed(2)}%
+                          {isGain ? '+' : ''}{gainPctVal.toFixed(2)}%
                         </div>
                       </div>
                     ) : (

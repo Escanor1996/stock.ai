@@ -545,6 +545,10 @@ export function getPortfolioHoldings() {
       s.is_ai_score = false;
       s.score_category = algoScore >= 80 ? 'Exceptional' : algoScore >= 65 ? 'Strong' : algoScore >= 50 ? 'Moderate' : 'High Risk';
     }
+    if (s.cost_basis !== undefined && s.cost_basis !== null && s.cost_basis > 0) {
+      s.has_broker_buy_price = true;
+      s.buy_price = s.quantity > 0 ? roundCurrency(s.cost_basis / s.quantity) : s.price;
+    }
   }
   for (const m of mutualFunds) {
     const value = itemValue(m);
@@ -555,6 +559,10 @@ export function getPortfolioHoldings() {
     const value = itemValue(b);
     b.weight_pct = totalBondsVal > 0 ? roundCurrency((value / totalBondsVal) * 100) : 0;
     b.total_weight_pct = totalPortfolioValue > 0 ? roundCurrency((value / totalPortfolioValue) * 100) : 0;
+    if (b.cost_basis !== undefined && b.cost_basis !== null && b.cost_basis > 0) {
+      b.has_broker_buy_price = true;
+      b.buy_price = b.quantity > 0 ? roundCurrency(b.cost_basis / b.quantity) : b.price;
+    }
   }
   for (const account of epfoAccounts) {
     account.weight_pct = totalPortfolioValue > 0 ? roundCurrency((account.total_balance / totalPortfolioValue) * 100) : 0;

@@ -62,12 +62,23 @@ export default function StocksTable({
 
   const stocksCostTotal = useMemo(() => {
     return stocks.reduce((sum, s) => {
-      if (s.has_broker_buy_price) return sum + (s.cost_basis || 0);
-      return sum + ((s.price || 0) * (s.quantity || 0));
+      if (s.cost_basis !== undefined && s.cost_basis !== null && s.cost_basis > 0) {
+        return sum + s.cost_basis;
+      }
+      return sum + ((s.buy_price || s.price || 0) * (s.quantity || 0));
     }, 0);
   }, [stocks]);
 
-  const stocksGainTotal = stocksCurrentVal - stocksCostTotal;
+  const stocksGainTotal = useMemo(() => {
+    return stocks.reduce((sum, s) => {
+      if (s.gain !== undefined && s.gain !== null) {
+        return sum + s.gain;
+      }
+      const live = s.live_value ?? s.value ?? 0;
+      const cost = s.cost_basis || ((s.buy_price || s.price || 0) * (s.quantity || 0));
+      return sum + (live - cost);
+    }, 0);
+  }, [stocks]);
   const stocksGainPct = stocksCostTotal > 0 ? (stocksGainTotal / stocksCostTotal) * 100 : 0;
 
   const filteredStocks = useMemo(() => {
@@ -249,15 +260,22 @@ export default function StocksTable({
               </tr>
             ) : (
               filteredStocks.map((stock, idx) => {
-                const isGain = (stock.gain || 0) >= 0;
                 const liveVal = stock.live_value ?? stock.value ?? 0;
                 const livePr = stock.live_price ?? stock.price ?? 0;
-                const buyPrice = stock.has_broker_buy_price && stock.buy_price > 0 ? stock.buy_price : stock.price;
-                const costBasis = stock.cost_basis || (buyPrice * (stock.quantity || 0));
+                const costBasis = stock.cost_basis !== undefined && stock.cost_basis !== null && stock.cost_basis > 0
+                  ? stock.cost_basis
+                  : ((stock.buy_price || stock.price || 0) * (stock.quantity || 0));
+                const buyPrice = stock.buy_price && stock.buy_price > 0
+                  ? stock.buy_price
+                  : (stock.quantity > 0 && costBasis > 0 ? Math.round((costBasis / stock.quantity) * 100) / 100 : stock.price);
+                const gainVal = stock.gain !== undefined && stock.gain !== null ? stock.gain : (liveVal - costBasis);
+                const gainPctVal = stock.gain_pct !== undefined && stock.gain_pct !== null
+                  ? stock.gain_pct
+                  : (costBasis > 0 ? (gainVal / costBasis) * 100 : 0);
+                const isGain = gainVal >= 0;
                 const isETF = stock.subtype === 'ETF';
                 const oneDayPct = stock.live_change_percent || 0;
                 const scoreTheme = stock.score != null ? getScoreTheme(stock.score) : null;
-
                 return (
                   <tr
                     key={idx}
@@ -322,13 +340,13 @@ export default function StocksTable({
 
                     {/* Returns (%) */}
                     <td className="py-4 px-5 text-right">
-                      {stock.gain !== undefined ? (
+                      {gainVal !== undefined ? (
                         <div>
                           <div className={`font-mono text-sm font-medium ${isGain ? 'text-success' : 'text-destructive'}`}>
-                            {isGain ? '+' : '-'}{fmt(stock.gain)}
+                            {isGain ? '+' : '-'}{fmt(gainVal)}
                           </div>
                           <div className={`text-[11px] font-mono font-medium mt-0.5 ${isGain ? 'text-success' : 'text-destructive'}`}>
-                            {(stock.gain_pct || 0).toFixed(2)}%
+                            {isGain ? '+' : ''}{gainPctVal.toFixed(2)}%
                           </div>
                         </div>
                       ) : (
