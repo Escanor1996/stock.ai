@@ -194,12 +194,12 @@ export default function PortfolioDashboard({
 
     if (mutualFunds.length > 0) {
       list.push({
-        name: 'Mutual Fund Folios',
-        subtitle: 'CAMS / KFintech Statement Verified',
+        name: summary.broker_source ? `${summary.broker_source} Mutual Funds` : 'Mutual Fund Folios',
+        subtitle: summary.mf_xirr ? `Portfolio XIRR: +${summary.mf_xirr}% • ${summary.broker_source || 'Broker'} Statement` : 'CAMS / KFintech Statement Verified',
         count: `${mutualFunds.length} Active Schemes`,
         value: mfVal,
-        badge: 'RTA Certified',
-        badgeClass: 'bg-info/10 text-info border-info/30',
+        badge: summary.mf_xirr ? `+${summary.mf_xirr}% XIRR` : 'RTA Certified',
+        badgeClass: summary.mf_xirr ? 'bg-success/10 text-success border-success/30' : 'bg-info/10 text-info border-info/30',
         targetTab: 'mutual_funds'
       });
     }
@@ -311,13 +311,14 @@ export default function PortfolioDashboard({
             onClick={() => fileInputRef.current?.click()}
             disabled={isBrokerUploading}
             className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-foreground bg-card hover:bg-muted/80 border border-border/80 rounded-full transition-all duration-150 active:scale-95 shadow-xs disabled:opacity-50"
+            title="Upload broker spreadsheet (Groww, Zerodha, Upstox - Stocks or Mutual Funds)"
           >
             {isBrokerUploading ? (
               <RefreshCw className="w-3.5 h-3.5 text-muted-foreground animate-spin" />
             ) : (
               <Upload className="w-3.5 h-3.5 text-info" />
             )}
-            <span>{isBrokerUploading ? 'Importing...' : 'Import Buy Prices'}</span>
+            <span>{isBrokerUploading ? 'Importing...' : 'Sync Broker Sheet'}</span>
           </button>
 
           <button
@@ -495,12 +496,20 @@ export default function PortfolioDashboard({
             <div className="font-mono text-2xl font-bold text-foreground">
               {formatCurrency(mfVal)}
             </div>
-            <div className="text-xs text-muted-foreground flex items-center gap-1.5 mt-0.5">
+            <div className="text-xs text-muted-foreground flex items-center flex-wrap gap-1.5 mt-0.5">
               <span>Cost: {formatCurrency(mfCost)}</span>
               <span>•</span>
               <span className={mfGain >= 0 ? 'text-success font-medium font-mono' : 'text-destructive font-medium font-mono'}>
                 {mfGain >= 0 ? '+' : ''}{formatCurrency(mfGain)}
               </span>
+              {summary.mf_xirr !== undefined && summary.mf_xirr !== null && (
+                <>
+                  <span>•</span>
+                  <span className="text-success font-mono font-semibold">
+                    +{summary.mf_xirr}% XIRR
+                  </span>
+                </>
+              )}
             </div>
           </div>
 

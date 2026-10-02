@@ -3,12 +3,10 @@ import { Search } from 'lucide-react';
 import PortfolioHeader from './PortfolioHeader';
 import PortfolioUploader from './PortfolioUploader';
 import MetricCards from './MetricCards';
-import PortfolioGrowthChart from './PortfolioGrowthChart';
+import AnalyticsDashboard from './AnalyticsDashboard';
 import StocksTable from './StocksTable';
 import MutualFundsTable from './MutualFundsTable';
 import BondsTable from './BondsTable';
-import AllocationBreakdown from './AllocationBreakdown';
-import TransactionsLedger from './TransactionsLedger';
 import {
   uploadCASFile,
   uploadBrokerStatement,
@@ -414,10 +412,17 @@ export default function PortfolioPage({ onSelectStock = () => {}, initialTab = '
         } catch (saveErr) {
           console.warn('Could not auto-save to DB:', saveErr);
         }
-        const count = updatedPortfolio.summary?.broker_enriched_count || 0;
+        const isMf = res.broker_data?.statement_type === 'MUTUAL_FUNDS';
+        const mfCount = updatedPortfolio.summary?.broker_mf_count || res.broker_data?.mutual_funds?.length || 0;
+        const totalCount = updatedPortfolio.summary?.broker_enriched_count || 0;
+        const xirrMsg = updatedPortfolio.summary?.mf_xirr !== undefined && updatedPortfolio.summary?.mf_xirr !== null
+          ? ` (Portfolio XIRR: +${updatedPortfolio.summary.mf_xirr}%)`
+          : '';
         setBrokerNotice({
           type: 'success',
-          message: `Successfully imported ${res.broker_data?.broker || 'broker'} buy prices for ${count} positions. Accurate P&L active.`
+          message: isMf
+            ? `Successfully imported ${res.broker_data?.broker || 'Groww'} Mutual Funds statement: ${mfCount} folios updated with cost basis and XIRR${xirrMsg}.`
+            : `Successfully imported ${res.broker_data?.broker || 'broker'} statement for ${totalCount} positions. Accurate cost basis active.`
         });
         setTimeout(() => setBrokerNotice(null), 6000);
       }
@@ -530,64 +535,34 @@ export default function PortfolioPage({ onSelectStock = () => {}, initialTab = '
             statementPeriod={portfolioData.statement_period}
           />
 
-          {/* ── NAVIGATION BAR: SEGMENTED PILL TABS + SEARCH ── */}
-          <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 pt-2">
-            {/* Wealthfolio Segmented Pill Tabs */}
-            <div className="inline-flex items-center gap-1 bg-muted/60 p-1 rounded-full border border-border/40 overflow-x-auto">
-              <button
-                type="button"
-                onClick={() => setActiveTab('stocks')}
-                className={`px-4 py-1.5 text-xs font-semibold rounded-full transition-all duration-200 shrink-0 ${
-                  activeTab === 'stocks'
-                    ? 'bg-card text-foreground shadow-xs'
-                    : 'text-muted-foreground hover:text-foreground'
-                }`}
-              >
-                Stocks & ETFs ({stocksList.length})
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setActiveTab('mutual_funds')}
-                className={`px-4 py-1.5 text-xs font-semibold rounded-full transition-all duration-200 shrink-0 ${
-                  activeTab === 'mutual_funds'
-                    ? 'bg-card text-foreground shadow-xs'
-                    : 'text-muted-foreground hover:text-foreground'
-                }`}
-              >
-                Mutual Funds ({mutualFundsList.length})
-              </button>
-
-              {bondsList.length > 0 && (
+          {/* ── NAVIGATION BAR: FLAT UNDERLINE TABS + SEARCH ── */}
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-end justify-between gap-3 pt-2">
+            {/* Underline Tabs */}
+            <div className="flex items-center gap-6 border-b border-border/40 overflow-x-auto">
+              {[
+                { key: 'stocks', label: 'STOCKS' },
+                { key: 'mutual_funds', label: 'MUTUAL FUNDS' },
+                ...(bondsList.length > 0 ? [{ key: 'bonds', label: 'BONDS' }] : []),
+                { key: 'analytics', label: 'ANALYTICS' },
+              ].map(tab => (
                 <button
+                  key={tab.key}
                   type="button"
-                  onClick={() => setActiveTab('bonds')}
-                  className={`px-4 py-1.5 text-xs font-semibold rounded-full transition-all duration-200 shrink-0 ${
-                    activeTab === 'bonds'
-                      ? 'bg-card text-foreground shadow-xs'
-                      : 'text-muted-foreground hover:text-foreground'
+                  onClick={() => setActiveTab(tab.key)}
+                  className={`pb-2.5 text-[13px] font-semibold tracking-wide transition-colors whitespace-nowrap shrink-0 ${
+                    activeTab === tab.key
+                      ? 'text-foreground border-b-2 border-foreground'
+                      : 'text-muted-foreground hover:text-foreground border-b-2 border-transparent'
                   }`}
                 >
-                  Bonds & SGBs ({bondsList.length})
+                  {tab.label}
                 </button>
-              )}
-
-              <button
-                type="button"
-                onClick={() => setActiveTab('analytics')}
-                className={`px-4 py-1.5 text-xs font-semibold rounded-full transition-all duration-200 shrink-0 ${
-                  activeTab === 'analytics'
-                    ? 'bg-card text-foreground shadow-xs'
-                    : 'text-muted-foreground hover:text-foreground'
-                }`}
-              >
-                Analytics & Insights
-              </button>
+              ))}
             </div>
 
-            {/* Pill Search Input */}
+            {/* Search Input */}
             {activeTab !== 'analytics' && (
-              <div className="relative w-full sm:w-72">
+              <div className="relative w-full sm:w-72 pb-1">
                 <Search className="w-3.5 h-3.5 text-muted-foreground absolute left-3 top-1/2 -translate-y-1/2" />
                 <input
                   type="text"
@@ -621,6 +596,7 @@ export default function PortfolioPage({ onSelectStock = () => {}, initialTab = '
           {activeTab === 'mutual_funds' && (
             <MutualFundsTable
               mutualFunds={mutualFundsList}
+              summary={portfolioData?.summary || {}}
               searchQuery={searchQuery}
             />
           )}
@@ -632,28 +608,23 @@ export default function PortfolioPage({ onSelectStock = () => {}, initialTab = '
           )}
 
           {activeTab === 'analytics' && (
-            <div className="space-y-6">
-              {/* Edge-to-Edge Portfolio Growth Chart */}
-              <PortfolioGrowthChart
-                historicalValuations={historicalValuations}
-                chartMetric={chartMetric}
-                onChartMetricChange={setChartMetric}
-              />
-
-              {/* Asset Allocation Breakdown */}
-              <AllocationBreakdown
-                totalVal={totalVal}
-                directStocksVal={directStocksVal}
-                etfsVal={etfsVal}
-                mfVal={mfVal}
-                bondsVal={bondsVal}
-              />
-
-              {/* Transaction Ledger */}
-              <TransactionsLedger
-                transactions={transactionsList}
-              />
-            </div>
+            <AnalyticsDashboard
+              stocksList={stocksList}
+              directStocksList={directStocksList}
+              etfsList={etfsList}
+              mutualFundsList={mutualFundsList}
+              bondsList={bondsList}
+              totalVal={totalVal}
+              directStocksVal={directStocksVal}
+              etfsVal={etfsVal}
+              mfVal={mfVal}
+              bondsVal={bondsVal}
+              summary={summary}
+              historicalValuations={historicalValuations}
+              transactionsList={transactionsList}
+              chartMetric={chartMetric}
+              onChartMetricChange={setChartMetric}
+            />
           )}
         </div>
       )}

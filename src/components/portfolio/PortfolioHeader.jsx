@@ -7,7 +7,8 @@ import {
   Trash2,
   Wallet,
   RefreshCw,
-  UploadCloud
+  UploadCloud,
+  TrendingUp
 } from 'lucide-react';
 
 export default function PortfolioHeader({
@@ -46,7 +47,13 @@ export default function PortfolioHeader({
             {portfolioData?.summary?.broker_source && (
               <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-info/10 text-info border border-info/30">
                 <CheckCircle2 className="w-3 h-3 text-info" />
-                <span>{portfolioData.summary.broker_source} Buy Prices ({portfolioData.summary.broker_enriched_count || 0})</span>
+                <span>{portfolioData.summary.broker_source} Verified ({portfolioData.summary.broker_enriched_count || 0})</span>
+              </span>
+            )}
+            {portfolioData?.summary?.mf_xirr !== undefined && portfolioData?.summary?.mf_xirr !== null && (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-success/10 text-success border border-success/30 font-mono">
+                <TrendingUp className="w-3 h-3 text-success" />
+                <span>MF XIRR: +{portfolioData.summary.mf_xirr}%</span>
               </span>
             )}
           </div>
@@ -79,14 +86,14 @@ export default function PortfolioHeader({
             onClick={() => brokerFileRef.current?.click()}
             disabled={isBrokerUploading}
             className="inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold text-foreground bg-muted hover:bg-muted/80 border border-border rounded-full transition-all duration-150 active:scale-95 disabled:opacity-50"
-            title="Upload broker spreadsheet (Groww, Zerodha, Upstox) to set accurate buy prices"
+            title="Upload broker spreadsheet (Groww, Zerodha, Upstox - Stocks or Mutual Funds) to set accurate buy prices & XIRR"
           >
             {isBrokerUploading ? (
               <RefreshCw className="w-3.5 h-3.5 text-muted-foreground animate-spin" />
             ) : (
               <FileSpreadsheet className="w-3.5 h-3.5 text-info" />
             )}
-            <span>{isBrokerUploading ? 'Importing...' : 'Import Buy Prices'}</span>
+            <span>{isBrokerUploading ? 'Importing...' : 'Import Broker Sheet'}</span>
           </button>
           {/* Export CSV */}
           <button

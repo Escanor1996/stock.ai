@@ -18,10 +18,47 @@ function dedup(key, fn) {
   return promise;
 }
 
+
+export function normalizeTicker(ticker) {
+  if (!ticker) return ticker;
+  const t = ticker.toUpperCase().trim();
+  const isinMap = {
+    'INE0HOQ01053': 'GROWW',
+    'INE742F01042': 'ADANIPORTS',
+    'INE00WC01027': 'AFFLE',
+    'INE049B01025': 'WOCKPHARMA',
+    'INE249Z01020': 'MAZDOCK',
+    'INE918Z01012': 'KAYNES',
+    'INE455K01017': 'POLYCAB',
+    'INE251B01027': 'ZENTEC',
+    'INE1TAE01010': 'TATAMOTORS',
+    'INE056I01025': 'REFEX',
+    'INE255Z01027': 'E2E',
+    'INE285K01026': 'TECHNOE',
+    'INF204KB14I2': 'NIFTYBEES',
+    'INF204KB19I1': 'HNGSNGBEES',
+    'INF247L01AP3': 'MON100',
+  };
+  if (isinMap[t]) return isinMap[t];
+
+  const aliasMap = {
+    'BILLIONBRAINS': 'GROWW',
+    'WOCKHARDT': 'WOCKPHARMA',
+    'MAZAGON': 'MAZDOCK',
+    'ADANI': 'ADANIPORTS',
+    'TATA': 'TATAMOTORS',
+    'ZEN': 'ZENTEC',
+    'TECHNO': 'TECHNOE',
+    'MOTILAL': 'MON100',
+    'NIP': 'NIFTYBEES',
+  };
+  if (aliasMap[t]) return aliasMap[t];
+  return t;
+}
 // ── Main Entry: Get Full Stock Data ─────────────────────────────────────────
 
 export async function getStockData(ticker) {
-  const t = ticker.toUpperCase();
+  const t = normalizeTicker(ticker);
   return dedup(`stock:${t}`, () => _fetchAndMerge(t));
 }
 
@@ -161,7 +198,7 @@ function assembleResponse(ticker) {
 // ── Historical Prices ───────────────────────────────────────────────────────
 
 export async function getHistoricalPrices(ticker, range = '1y') {
-  const t = ticker.toUpperCase();
+  const t = normalizeTicker(ticker);
   return dedup(`hist:${t}:${range}`, () => _fetchHistorical(t, range));
 }
 

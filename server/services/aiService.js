@@ -1,10 +1,11 @@
 import * as db from '../db.js';
-
+import { getStockData, normalizeTicker } from './stockService.js';
 // ── 1. Decoupled AI 360° Score Engine ────────────────────────────────────────
 
 export async function generateAIScore(ticker, force = false) {
+  const t = normalizeTicker(ticker);
   if (!force) {
-    const cached = db.getAIAnalysis(ticker);
+    const cached = db.getAIAnalysis(t);
     if (cached && cached.score != null) {
       return {
         score: cached.score,
@@ -14,13 +15,26 @@ export async function generateAIScore(ticker, force = false) {
     }
   }
 
-  const stock = db.getStock(ticker);
-  const quote = db.getQuote(ticker);
-  const fund = db.getFundamentals(ticker);
-  const quarters = db.getQuarterlies(ticker);
+  let stock = db.getStock(t);
+  let quote = db.getQuote(t);
+  let fund = db.getFundamentals(t);
+  let quarters = db.getQuarterlies(t);
+
+  // If data missing in DB, automatically pre-fetch it
+  if (!stock || !quote || !fund) {
+    try {
+      await getStockData(t);
+      stock = db.getStock(t);
+      quote = db.getQuote(t);
+      fund = db.getFundamentals(t);
+      quarters = db.getQuarterlies(t);
+    } catch (e) {
+      console.error(`Auto-fetch stock data failed for ${t}:`, e.message);
+    }
+  }
 
   if (!stock || !quote || !fund) {
-    throw new Error('Data missing for AI score generation');
+    throw new Error(`Data missing for AI score generation for ${t}`);
   }
 
   let result = null;
@@ -38,7 +52,7 @@ export async function generateAIScore(ticker, force = false) {
 
   // Persist score independently
   db.upsertAIScore({
-    ticker,
+    ticker: t,
     score: result.score,
     parameterScores: result.parameterScores,
     engine: result.engine
@@ -50,8 +64,9 @@ export async function generateAIScore(ticker, force = false) {
 // ── 2. Decoupled Fin-LLM 360° Verdict Engine ─────────────────────────────────
 
 export async function generateAIVerdict(ticker, force = false) {
+  const t = normalizeTicker(ticker);
   if (!force) {
-    const cached = db.getAIAnalysis(ticker);
+    const cached = db.getAIAnalysis(t);
     if (cached && cached.verdict) {
       return {
         verdict: cached.verdict,
@@ -64,13 +79,26 @@ export async function generateAIVerdict(ticker, force = false) {
     }
   }
 
-  const stock = db.getStock(ticker);
-  const quote = db.getQuote(ticker);
-  const fund = db.getFundamentals(ticker);
-  const quarters = db.getQuarterlies(ticker);
+  let stock = db.getStock(t);
+  let quote = db.getQuote(t);
+  let fund = db.getFundamentals(t);
+  let quarters = db.getQuarterlies(t);
+
+  // If data missing in DB, automatically pre-fetch it
+  if (!stock || !quote || !fund) {
+    try {
+      await getStockData(t);
+      stock = db.getStock(t);
+      quote = db.getQuote(t);
+      fund = db.getFundamentals(t);
+      quarters = db.getQuarterlies(t);
+    } catch (e) {
+      console.error(`Auto-fetch stock data failed for ${t}:`, e.message);
+    }
+  }
 
   if (!stock || !quote || !fund) {
-    throw new Error('Data missing for AI verdict generation');
+    throw new Error(`Data missing for AI verdict generation for ${t}`);
   }
 
   let result = null;
@@ -88,7 +116,7 @@ export async function generateAIVerdict(ticker, force = false) {
 
   // Persist verdict independently
   db.upsertAIVerdict({
-    ticker,
+    ticker: t,
     verdict: result.verdict,
     bullPoints: result.bullPoints,
     bearPoints: result.bearPoints,

@@ -42,6 +42,13 @@ KNOWN_ISIN_MAP = {
     "INE251B01027": {"symbol": "ZENTEC", "name": "Zen Technologies Limited", "subtype": "DIRECT_STOCK"},
     "INE1TAE01010": {"symbol": "TMCV", "name": "Tata Motors Limited", "subtype": "DIRECT_STOCK"},
     "INE155A01022": {"symbol": "TMPV", "name": "Tata Motors Passenger Vehicles Limited", "subtype": "DIRECT_STOCK"},
+    "INE0HOQ01053": {"symbol": "GROWW", "name": "Billionbrains Garage Ventures Limited (Groww)", "subtype": "DIRECT_STOCK"},
+    "INE742F01042": {"symbol": "ADANIPORTS", "name": "Adani Ports and Special Economic Zone Limited", "subtype": "DIRECT_STOCK"},
+    "INE00WC01027": {"symbol": "AFFLE", "name": "Affle (India) Limited", "subtype": "DIRECT_STOCK"},
+    "INE049B01025": {"symbol": "WOCKPHARMA", "name": "Wockhardt Limited", "subtype": "DIRECT_STOCK"},
+    "INE249Z01020": {"symbol": "MAZDOCK", "name": "Mazagon Dock Shipbuilders Limited", "subtype": "DIRECT_STOCK"},
+    "INE918Z01012": {"symbol": "KAYNES", "name": "Kaynes Technology India Limited", "subtype": "DIRECT_STOCK"},
+    "INE455K01017": {"symbol": "POLYCAB", "name": "Polycab India Limited", "subtype": "DIRECT_STOCK"},
 }
 
 

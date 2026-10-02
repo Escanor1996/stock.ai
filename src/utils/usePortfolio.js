@@ -25,6 +25,31 @@ function emitChange() {
   listeners.forEach(fn => fn());
 }
 
+function normalizeHolding(item) {
+  if (!item) return item;
+  let sym = (item.symbol || '').toUpperCase().trim();
+  let name = item.name || '';
+  if (item.isin === 'INE0HOQ01053' || sym === 'BILLIONBRAINS') {
+    sym = 'GROWW';
+    if (!name || name.includes('BILLIONBRAINS')) name = 'Groww (Billionbrains Garage)';
+  } else if (item.isin === 'INE742F01042' || sym === 'ADANI') {
+    sym = 'ADANIPORTS';
+  } else if (item.isin === 'INE00WC01027') {
+    sym = 'AFFLE';
+  } else if (item.isin === 'INE049B01025' || sym === 'WOCKHARDT') {
+    sym = 'WOCKPHARMA';
+  } else if (item.isin === 'INE249Z01020' || sym === 'MAZAGON') {
+    sym = 'MAZDOCK';
+  } else if (item.isin === 'INE1TAE01010' || sym === 'TATA') {
+    sym = 'TATAMOTORS';
+  } else if (item.isin === 'INE251B01027' || sym === 'ZEN') {
+    sym = 'ZENTEC';
+  } else if (item.isin === 'INE285K01026' || sym === 'TECHNO') {
+    sym = 'TECHNOE';
+  }
+  return { ...item, symbol: sym, name };
+}
+
 export function usePortfolio() {
   const [, setTick] = useState(0);
 
@@ -43,8 +68,57 @@ export function usePortfolio() {
       try {
         const parsed = JSON.parse(cached);
         if (parsed && (parsed.stocks?.length > 0 || parsed.holdings?.length > 0 || parsed.mutual_funds?.length > 0)) {
-          globalPortfolio = parsed;
+          const norm = (arr) => Array.isArray(arr) ? arr.map(normalizeHolding) : arr;
+          globalPortfolio = {
+            ...parsed,
+            stocks: norm(parsed.stocks),
+            holdings: norm(parsed.holdings),
+            direct_stocks: norm(parsed.direct_stocks),
+            etfs: norm(parsed.etfs)
+          };
           emitChange();
+          // Sync with database scores asynchronously
+          fetch('/api/portfolio/scores')
+            .then(r => r.json())
+            .then(sRes => {
+              if (sRes?.success && sRes.scores && globalPortfolio?.stocks) {
+                let changed = false;
+                const syncScores = (list) => {
+                  if (!Array.isArray(list)) return list;
+                  return list.map(item => {
+                    const sym = (item.symbol || '').toUpperCase().trim();
+                    const sc = sRes.scores[sym];
+                    if (sc && sc.score != null && (item.score !== sc.score || item.is_ai_score !== sc.is_ai_score)) {
+                      changed = true;
+                      return {
+                        ...item,
+                        score: sc.score,
+                        score_type: sc.score_type,
+                        score_engine: sc.score_engine,
+                        is_ai_score: sc.is_ai_score,
+                        score_category: sc.score_category
+                      };
+                    }
+                    return item;
+                  });
+                };
+                const newStocks = syncScores(globalPortfolio.stocks);
+                if (changed) {
+                  globalPortfolio = {
+                    ...globalPortfolio,
+                    stocks: newStocks,
+                    holdings: syncScores(globalPortfolio.holdings),
+                    direct_stocks: syncScores(globalPortfolio.direct_stocks),
+                    etfs: syncScores(globalPortfolio.etfs)
+                  };
+                  try {
+                    localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(globalPortfolio));
+                  } catch (_) {}
+                  emitChange();
+                }
+              }
+            })
+            .catch(() => {});
           return;
         }
       } catch (e) {
@@ -79,6 +153,39 @@ export function usePortfolio() {
     }
     emitChange();
   }, []);
+  const updateStockScore = useCallback((symbol, scoreData) => {
+    if (!globalPortfolio || !symbol || !scoreData) return;
+    const sym = symbol.toUpperCase().trim();
+    const isAI = scoreData.is_ai_score !== undefined
+      ? scoreData.is_ai_score
+      : Boolean(scoreData.engine && (scoreData.engine.includes('Gemini') || scoreData.engine.includes('AI') || !scoreData.engine.includes('Algorithm')));
+
+    const updateList = (list) => {
+      if (!Array.isArray(list)) return list;
+      return list.map(item => {
+        if ((item.symbol || '').toUpperCase().trim() === sym) {
+          return {
+            ...item,
+            score: scoreData.score,
+            score_type: isAI ? 'ai' : 'algo',
+            score_engine: scoreData.engine || scoreData.score_engine || 'stock.ai Algorithm',
+            is_ai_score: isAI,
+            score_category: scoreData.score >= 80 ? 'Exceptional' : scoreData.score >= 65 ? 'Strong' : scoreData.score >= 50 ? 'Moderate' : 'High Risk'
+          };
+        }
+        return item;
+      });
+    };
+
+    const updated = {
+      ...globalPortfolio,
+      stocks: updateList(globalPortfolio.stocks),
+      holdings: updateList(globalPortfolio.holdings),
+      direct_stocks: updateList(globalPortfolio.direct_stocks),
+      etfs: updateList(globalPortfolio.etfs)
+    };
+    updatePortfolioState(updated);
+  }, [updatePortfolioState]);
 
   const handleParseStatement = useCallback(async (file, password, enrichPrices) => {
     globalLoading = true;
@@ -221,6 +328,7 @@ export function usePortfolio() {
     saveStatus: globalSaveStatus,
     setPortfolioData: updatePortfolioState,
     updatePortfolioState,
+    updateStockScore,
     handleParseStatement,
     handleUploadBrokerSpreadsheet,
     handleLoadDemo,

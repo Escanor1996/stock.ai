@@ -246,6 +246,17 @@ app.get('/api/portfolio', (req, res) => {
   }
 });
 
+// GET /api/portfolio/scores - Retrieve all persisted AI & Algorithm scores
+app.get('/api/portfolio/scores', (req, res) => {
+  try {
+    const scores = db.getAllAIScores();
+    res.json({ success: true, scores });
+  } catch (err) {
+    console.error('Get portfolio scores error:', err);
+    res.status(500).json({ success: false, error: 'Failed to retrieve portfolio scores' });
+  }
+});
+
 // DELETE /api/portfolio — Clear saved portfolio
 app.delete('/api/portfolio', (req, res) => {
   try {

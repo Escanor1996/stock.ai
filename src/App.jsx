@@ -123,6 +123,16 @@ export default function App() {
         scoreEngine: scoreData.engine,
         engine: scoreData.engine || prev.engine,
       }));
+      // Automatically sync AI score to portfolio holdings
+      const isAI = Boolean(scoreData.engine && (scoreData.engine.includes('Gemini') || scoreData.engine.includes('AI') || !scoreData.engine.includes('Algorithm')));
+      if (portfolio?.updateStockScore) {
+        portfolio.updateStockScore(currentSymbol, {
+          score: scoreData.score,
+          is_ai_score: isAI,
+          engine: scoreData.engine,
+          score_engine: scoreData.engine
+        });
+      }
     } catch (err) {
       console.error("AI score fetch failed:", err);
       alert("Failed to calculate AI Score. Please try again.");

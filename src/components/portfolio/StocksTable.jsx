@@ -1,5 +1,37 @@
 import React, { useState, useMemo } from 'react';
-import { ArrowUpDown, ChevronRight } from 'lucide-react';
+import { ChevronRight, ArrowUpDown, Sparkles, Cpu } from 'lucide-react';
+
+const getScoreTheme = (score) => {
+  if (score >= 80) {
+    return {
+      text: 'text-info',
+      bg: 'bg-info/10',
+      border: 'border-info/30',
+      label: 'Exceptional'
+    };
+  } else if (score >= 65) {
+    return {
+      text: 'text-success',
+      bg: 'bg-success/10',
+      border: 'border-success/30',
+      label: 'Strong'
+    };
+  } else if (score >= 50) {
+    return {
+      text: 'text-warning',
+      bg: 'bg-warning/10',
+      border: 'border-warning/30',
+      label: 'Moderate'
+    };
+  } else {
+    return {
+      text: 'text-destructive',
+      bg: 'bg-destructive/10',
+      border: 'border-destructive/30',
+      label: 'High Risk'
+    };
+  }
+};
 
 export default function StocksTable({
   stocks = [],
@@ -9,7 +41,7 @@ export default function StocksTable({
   onSelectStock = () => {},
   summary = {}
 }) {
-  const [subfilter, setSubfilter] = useState('all'); // 'all' | 'direct' | 'etf'
+  const [subfilter, setSubfilter] = useState('all');
   const [sortField, setSortField] = useState('value');
   const [sortDirection, setSortDirection] = useState('desc');
 
@@ -22,9 +54,7 @@ export default function StocksTable({
     }
   };
 
-  const hasBrokerData = useMemo(() => {
-    return stocks.some(s => s.has_broker_buy_price);
-  }, [stocks]);
+  const fmt = (n) => '₹' + Math.abs(n).toLocaleString('en-IN', { maximumFractionDigits: 2 });
 
   const stocksCurrentVal = useMemo(() => {
     return stocks.reduce((sum, s) => sum + (s.live_value || s.value || 0), 0);
@@ -40,7 +70,6 @@ export default function StocksTable({
   const stocksGainTotal = stocksCurrentVal - stocksCostTotal;
   const stocksGainPct = stocksCostTotal > 0 ? (stocksGainTotal / stocksCostTotal) * 100 : 0;
 
-  // Filter & sort
   const filteredStocks = useMemo(() => {
     let source = stocks;
     if (subfilter === 'direct') source = directStocks;
@@ -57,14 +86,22 @@ export default function StocksTable({
     });
 
     return [...res].sort((a, b) => {
-      let va = a[sortField];
-      let vb = b[sortField];
+      let va, vb;
       if (sortField === 'value') {
         va = a.live_value ?? a.value ?? 0;
         vb = b.live_value ?? b.value ?? 0;
       } else if (sortField === 'price') {
         va = a.live_price ?? a.price ?? 0;
         vb = b.live_price ?? b.price ?? 0;
+      } else if (sortField === 'gain_pct') {
+        va = a.gain_pct ?? 0;
+        vb = b.gain_pct ?? 0;
+      } else if (sortField === 'score') {
+        va = a.score ?? 0;
+        vb = b.score ?? 0;
+      } else {
+        va = a[sortField];
+        vb = b[sortField];
       }
       if (typeof va === 'string') va = va.toLowerCase();
       if (typeof vb === 'string') vb = vb.toLowerCase();
@@ -74,291 +111,235 @@ export default function StocksTable({
     });
   }, [stocks, directStocks, etfs, subfilter, searchQuery, sortField, sortDirection]);
 
+  const { avgScore, aiCount, algoCount } = useMemo(() => {
+    const scored = stocks.filter(s => s.score != null);
+    if (scored.length === 0) return { avgScore: null, aiCount: 0, algoCount: 0 };
+    const sum = scored.reduce((acc, s) => acc + s.score, 0);
+    const ai = scored.filter(s => s.is_ai_score).length;
+    return {
+      avgScore: Math.round(sum / scored.length),
+      aiCount: ai,
+      algoCount: scored.length - ai
+    };
+  }, [stocks]);
+
   return (
     <div className="space-y-4">
-      {/* ── SUMMARY HIGHLIGHT STRIP ── */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        {/* Card 1: Valuation */}
-        <div className="space-y-1.5">
-          <div className="text-[11px] font-semibold text-muted-foreground tracking-wider uppercase px-0.5">
-            Total Stocks & ETFs Valuation
+      {/* ── SUMMARY HEADER CARD ── */}
+      <div className="bg-card rounded-xl border border-border/40 p-5">
+        <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+          <div className="flex items-center gap-2">
+            <div className="text-[11px] font-semibold text-muted-foreground tracking-wider uppercase">
+              Holdings ({stocks.length})
+            </div>
+            {avgScore != null && (
+              <span
+                className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold font-mono border ${getScoreTheme(avgScore).bg} ${getScoreTheme(avgScore).text} ${getScoreTheme(avgScore).border}`}
+                title={`${aiCount} AI-evaluated, ${algoCount} Algo-evaluated`}
+              >
+                <Sparkles className="w-2.5 h-2.5 text-info" />
+                <span>Quality {avgScore}</span>
+              </span>
+            )}
           </div>
-          <div className="glass-card p-4 space-y-0.5">
-            <div className="font-serif text-xl font-bold text-success">
-              ₹{stocksCurrentVal.toLocaleString('en-IN', { maximumFractionDigits: 2 })}
-            </div>
-            <div className="text-xs text-muted-foreground">
-              {stocks.length} Active Positions
-            </div>
+          {/* Sub-filter pills */}
+          <div className="inline-flex items-center gap-0.5 bg-muted/50 p-0.5 rounded-full">
+            {[
+              { key: 'all', label: `All (${stocks.length})` },
+              { key: 'direct', label: `Direct (${directStocks.length})` },
+              { key: 'etf', label: `ETFs (${etfs.length})` },
+            ].map(f => (
+              <button
+                key={f.key}
+                type="button"
+                onClick={() => setSubfilter(f.key)}
+                className={`px-3 py-1 text-[11px] font-semibold rounded-full transition-all ${
+                  subfilter === f.key
+                    ? 'bg-card text-foreground shadow-xs'
+                    : 'text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                {f.label}
+              </button>
+            ))}
           </div>
         </div>
 
-        {/* Card 2: Cost Basis */}
-        <div className="space-y-1.5">
-          <div className="text-[11px] font-semibold text-muted-foreground tracking-wider uppercase px-0.5">
-            Total Invested Cost Basis
-          </div>
-          <div className="glass-card p-4 space-y-0.5">
-            <div className="font-mono text-xl font-bold text-foreground">
-              ₹{stocksCostTotal.toLocaleString('en-IN', { maximumFractionDigits: 2 })}
-            </div>
-            <div className="text-xs text-muted-foreground">
-              {hasBrokerData ? 'Broker avg buy price' : 'From CAS statement'}
-            </div>
-          </div>
+        <div className="font-serif text-2xl font-bold text-foreground mb-4">
+          {fmt(stocksCurrentVal)}
         </div>
 
-        {/* Card 3: Unrealized Gain */}
-        <div className="space-y-1.5">
-          <div className="text-[11px] font-semibold text-muted-foreground tracking-wider uppercase px-0.5">
-            Unrealized Profit & Return
+        <div className="grid grid-cols-3 gap-4 pt-3 border-t border-border/30">
+          <div>
+            <div className="text-[11px] text-muted-foreground mb-0.5">Invested value</div>
+            <div className="text-sm font-semibold text-foreground font-mono">{fmt(stocksCostTotal)}</div>
           </div>
-          <div className="glass-card p-4 space-y-0.5">
-            <div className={`font-mono text-xl font-bold ${stocksGainTotal >= 0 ? 'text-success' : 'text-destructive'}`}>
-              {stocksGainTotal >= 0 ? '+' : ''}₹{Math.abs(stocksGainTotal).toLocaleString('en-IN', { maximumFractionDigits: 2 })}
-            </div>
-            <div className={`text-xs font-medium ${stocksGainPct >= 0 ? 'text-success' : 'text-destructive'}`}>
-              {stocksGainPct >= 0 ? '+' : ''}{stocksGainPct.toFixed(2)}% overall return
+          <div>
+            <div className="text-[11px] text-muted-foreground mb-0.5">1D returns</div>
+            <div className="text-sm font-semibold text-muted-foreground font-mono">₹0.00 (0.00%)</div>
+          </div>
+          <div>
+            <div className="text-[11px] text-muted-foreground mb-0.5">Total returns</div>
+            <div className={`text-sm font-semibold font-mono ${stocksGainTotal >= 0 ? 'text-success' : 'text-destructive'}`}>
+              {stocksGainTotal >= 0 ? '+' : '-'}{fmt(stocksGainTotal)} ({stocksGainPct.toFixed(2)}%)
             </div>
           </div>
-        </div>
-      </div>
-
-      {/* ── SUB-FILTER PILLS BAR ── */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 px-0.5">
-        <div className="inline-flex items-center gap-1 bg-muted/60 p-1 rounded-full border border-border/40">
-          <button
-            type="button"
-            onClick={() => setSubfilter('all')}
-            className={`px-3.5 py-1 text-xs font-semibold rounded-full transition-all duration-200 ${
-              subfilter === 'all'
-                ? 'bg-card text-foreground shadow-xs'
-                : 'text-muted-foreground hover:text-foreground'
-            }`}
-          >
-            All Stocks ({stocks.length})
-          </button>
-          <button
-            type="button"
-            onClick={() => setSubfilter('direct')}
-            className={`px-3.5 py-1 text-xs font-semibold rounded-full transition-all duration-200 flex items-center gap-1.5 ${
-              subfilter === 'direct'
-                ? 'bg-card text-foreground shadow-xs'
-                : 'text-muted-foreground hover:text-foreground'
-            }`}
-          >
-            <span className="w-1.5 h-1.5 rounded-full bg-info" />
-            <span>Direct Equities ({directStocks.length})</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => setSubfilter('etf')}
-            className={`px-3.5 py-1 text-xs font-semibold rounded-full transition-all duration-200 flex items-center gap-1.5 ${
-              subfilter === 'etf'
-                ? 'bg-card text-foreground shadow-xs'
-                : 'text-muted-foreground hover:text-foreground'
-            }`}
-          >
-            <span className="w-1.5 h-1.5 rounded-full bg-chart-5" />
-            <span>ETFs ({etfs.length})</span>
-          </button>
-        </div>
-
-        <div className="text-xs text-muted-foreground font-mono">
-          Showing {filteredStocks.length} of {stocks.length} positions
         </div>
       </div>
 
-      {/* ── HOLDINGS TABLE (Wealthfolio Two-Line Cell Pattern) ── */}
-      <div className="overflow-x-auto rounded-xl border border-border/40 bg-card/70 backdrop-blur-xl">
-        <table className="w-full text-left border-collapse">
+      {/* ── HOLDINGS TABLE ── */}
+      <div className="bg-card rounded-xl border border-border/40 overflow-hidden">
+        <table className="w-full text-left">
           <thead>
-            <tr className="border-b border-border/40 bg-muted/30 text-[11px] uppercase tracking-wider text-muted-foreground font-semibold select-none">
+            <tr className="border-b border-border/40 bg-muted/20 text-[11px] uppercase tracking-wider text-muted-foreground font-semibold select-none">
               <th
-                className="py-3 px-4 cursor-pointer hover:text-foreground transition-colors"
+                className="py-3 px-5 cursor-pointer hover:text-foreground transition-colors"
                 onClick={() => handleSort('symbol')}
               >
-                <div className="flex items-center gap-1.5">
-                  <span>Security / Ticker</span>
-                  <ArrowUpDown className="w-3 h-3 text-muted-foreground/60" />
+                <div className="flex items-center gap-1">
+                  <span>Company</span>
+                  <ArrowUpDown className="w-3 h-3 text-muted-foreground/50" />
                 </div>
               </th>
-              <th className="py-3 px-4 text-center">Type</th>
               <th
-                className="py-3 px-4 text-right cursor-pointer hover:text-foreground transition-colors"
-                onClick={() => handleSort('quantity')}
+                className="py-3 px-4 text-center cursor-pointer hover:text-foreground transition-colors"
+                onClick={() => handleSort('score')}
               >
-                <div className="flex items-center justify-end gap-1.5">
-                  <span>Quantity</span>
-                  <ArrowUpDown className="w-3 h-3 text-muted-foreground/60" />
+                <div className="flex items-center justify-center gap-1">
+                  <span>Score</span>
+                  <ArrowUpDown className="w-3 h-3 text-muted-foreground/50" />
                 </div>
               </th>
-              <th className="py-3 px-4 text-right">
-                {hasBrokerData ? 'Avg Buy Price' : 'Statement Price'}
-              </th>
-              <th className="py-3 px-4 text-right">Live Price</th>
               <th
-                className="py-3 px-4 text-right cursor-pointer hover:text-foreground transition-colors"
+                className="py-3 px-5 text-right cursor-pointer hover:text-foreground transition-colors"
+                onClick={() => handleSort('price')}
+              >
+                <div className="flex items-center justify-end gap-1">
+                  <span>Market price (1D%)</span>
+                  <ArrowUpDown className="w-3 h-3 text-muted-foreground/50" />
+                </div>
+              </th>
+              <th
+                className="py-3 px-5 text-right cursor-pointer hover:text-foreground transition-colors"
+                onClick={() => handleSort('gain_pct')}
+              >
+                <div className="flex items-center justify-end gap-1">
+                  <span>Returns (%)</span>
+                  <ArrowUpDown className="w-3 h-3 text-muted-foreground/50" />
+                </div>
+              </th>
+              <th
+                className="py-3 px-5 text-right cursor-pointer hover:text-foreground transition-colors"
                 onClick={() => handleSort('value')}
               >
-                <div className="flex items-center justify-end gap-1.5">
-                  <span>Holding Value</span>
-                  <ArrowUpDown className="w-3 h-3 text-muted-foreground/60" />
+                <div className="flex items-center justify-end gap-1">
+                  <span>Current (Invested)</span>
+                  <ArrowUpDown className="w-3 h-3 text-muted-foreground/50" />
                 </div>
               </th>
-              <th className="py-3 px-4 text-right">
-                {hasBrokerData ? 'P&L vs Buy Price' : 'P&L vs Statement'}
-              </th>
-              <th
-                className="py-3 px-4 text-right cursor-pointer hover:text-foreground transition-colors"
-                onClick={() => handleSort('weight_pct')}
-              >
-                <div className="flex items-center justify-end gap-1.5">
-                  <span>Weight %</span>
-                  <ArrowUpDown className="w-3 h-3 text-muted-foreground/60" />
-                </div>
-              </th>
-              <th className="py-3 px-4 text-center">Action</th>
             </tr>
           </thead>
 
-          <tbody className="divide-y divide-border/30 text-xs">
+          <tbody className="divide-y divide-border/20">
             {filteredStocks.length === 0 ? (
               <tr>
-                <td colSpan={9} className="py-8 text-center text-muted-foreground">
+                <td colSpan={5} className="py-10 text-center text-muted-foreground text-sm">
                   No stocks found matching your criteria.
                 </td>
               </tr>
             ) : (
               filteredStocks.map((stock, idx) => {
                 const isGain = (stock.gain || 0) >= 0;
-                const isETF = stock.subtype === 'ETF';
                 const liveVal = stock.live_value ?? stock.value ?? 0;
                 const livePr = stock.live_price ?? stock.price ?? 0;
+                const buyPrice = stock.has_broker_buy_price && stock.buy_price > 0 ? stock.buy_price : stock.price;
+                const costBasis = stock.cost_basis || (buyPrice * (stock.quantity || 0));
+                const isETF = stock.subtype === 'ETF';
+                const oneDayPct = stock.live_change_percent || 0;
+                const scoreTheme = stock.score != null ? getScoreTheme(stock.score) : null;
 
                 return (
-                  <tr key={idx} className="hover:bg-muted/30 transition-colors duration-150">
-                    {/* Position Name / Ticker */}
-                    <td className="py-3 px-4">
-                      <div className="flex items-center gap-2">
-                        <span className="font-bold text-foreground tracking-wide font-mono">
-                          {stock.symbol || 'N/A'}
-                        </span>
-                      </div>
-                      <div className="text-[11px] text-muted-foreground truncate max-w-xs" title={stock.name}>
-                        {stock.name}
-                      </div>
-                      <div className="text-[10px] text-muted-foreground/70 font-mono mt-0.5">
-                        {stock.isin}
-                      </div>
-                    </td>
-
-                    {/* Subtype Badge */}
-                    <td className="py-3 px-4 text-center">
-                      {isETF ? (
-                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-chart-5/10 text-chart-5 border border-chart-5/30">
-                          ETF
-                        </span>
-                      ) : (
-                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-info/10 text-info border border-info/30">
-                          Direct Stock
-                        </span>
-                      )}
-                    </td>
-
-                    {/* Quantity */}
-                    <td className="py-3 px-4 text-right font-mono font-medium text-foreground">
-                      {stock.quantity.toLocaleString('en-IN')}
-                    </td>
-
-                    {/* Price (Buy Price vs Statement Price) */}
-                    <td className="py-3 px-4 text-right font-mono">
-                      {stock.has_broker_buy_price && stock.buy_price > 0 ? (
-                        <div>
-                          <div className="font-semibold text-foreground">
-                            ₹{stock.buy_price.toFixed(2)}
+                  <tr
+                    key={idx}
+                    onClick={() => stock.symbol && onSelectStock(stock.symbol)}
+                    className="hover:bg-muted/30 transition-colors duration-150 cursor-pointer group"
+                  >
+                    {/* Company */}
+                    <td className="py-4 px-5">
+                      <div className="flex items-center justify-between">
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2">
+                            <span className="font-semibold text-foreground text-sm truncate">
+                              {stock.name || stock.symbol}
+                            </span>
+                            {isETF && (
+                              <span className="shrink-0 text-[9px] font-semibold px-1.5 py-0.5 rounded bg-chart-5/10 text-chart-5 border border-chart-5/30 uppercase">
+                                ETF
+                              </span>
+                            )}
                           </div>
-                          <div className="text-[10px] text-muted-foreground">
-                            CAS: ₹{stock.price.toFixed(2)}
+                          <div className="text-[11px] text-muted-foreground mt-0.5 font-mono">
+                            {stock.quantity} shares • Avg. {fmt(buyPrice)}
                           </div>
                         </div>
-                      ) : (
-                        <span className="text-muted-foreground">
-                          ₹{stock.price.toFixed(2)}
-                        </span>
-                      )}
+                        <ChevronRight className="w-4 h-4 text-muted-foreground/0 group-hover:text-muted-foreground/60 transition-colors ml-3 shrink-0" />
+                      </div>
                     </td>
 
-                    {/* Live Price (Two-line cell) */}
-                    <td className="py-3 px-4 text-right font-mono">
-                      <div className="font-semibold text-foreground">
-                        ₹{livePr.toFixed(2)}
-                      </div>
-                      {stock.live_change_percent !== undefined && stock.live_change_percent !== 0 && (
+                    {/* Score (AI vs Algo) */}
+                    <td className="py-4 px-4 text-center" onClick={(e) => {
+                      // Don't navigate if clicking on tooltip or badge
+                      e.stopPropagation();
+                      if (stock.symbol) onSelectStock(stock.symbol);
+                    }}>
+                      {stock.score != null ? (
                         <div
-                          className={`text-[10px] font-medium ${
-                            stock.live_change_percent >= 0 ? 'text-success' : 'text-destructive'
-                          }`}
+                          className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold font-mono border transition-transform hover:scale-105 ${scoreTheme.bg} ${scoreTheme.text} ${scoreTheme.border}`}
+                          title={stock.is_ai_score ? `AI 360° Score (${stock.score_engine || 'Gemini'})` : `Algorithm Score (${stock.score_engine || 'stock.ai Model'})`}
                         >
-                          {stock.live_change_percent >= 0 ? '+' : ''}{stock.live_change_percent.toFixed(2)}%
-                        </div>
-                      )}
-                    </td>
-
-                    {/* Holding Value */}
-                    <td className="py-3 px-4 text-right font-bold text-foreground font-mono">
-                      ₹{liveVal.toLocaleString('en-IN', { maximumFractionDigits: 2 })}
-                    </td>
-
-                    {/* Gain vs Statement (Two-line cell) */}
-                    <td className="py-3 px-4 text-right font-mono">
-                      {stock.gain !== undefined && stock.gain !== 0 ? (
-                        <div className={isGain ? 'text-success' : 'text-destructive'}>
-                          <span className="font-semibold">
-                            {isGain ? '+' : ''}₹{Math.abs(stock.gain).toLocaleString('en-IN', { maximumFractionDigits: 2 })}
-                          </span>
-                          <div className="text-[10px]">
-                            {isGain ? '+' : ''}{(stock.gain_pct || 0).toFixed(2)}%
-                          </div>
-                          {stock.has_broker_buy_price && (
-                            <div className="text-[9px] text-muted-foreground">
-                              vs cost
-                            </div>
+                          {stock.is_ai_score ? (
+                            <Sparkles className="w-3 h-3 text-info shrink-0" />
+                          ) : (
+                            <Cpu className="w-3 h-3 text-muted-foreground shrink-0" />
                           )}
+                          <span>{stock.score}</span>
+                          <span className="text-[9px] font-sans font-semibold uppercase opacity-75 tracking-wider">
+                            {stock.is_ai_score ? 'AI' : 'Algo'}
+                          </span>
                         </div>
                       ) : (
-                        <span className="text-muted-foreground text-[11px]">—</span>
+                        <span className="text-muted-foreground text-xs font-mono">—</span>
                       )}
                     </td>
 
-                    {/* Weight % (Two-line cell with mini bar) */}
-                    <td className="py-3 px-4 text-right font-mono">
-                      <div className="font-semibold text-foreground">
-                        {(stock.weight_pct || 0).toFixed(2)}%
-                      </div>
-                      <div className="w-14 h-1 bg-muted rounded-full ml-auto mt-1 overflow-hidden">
-                        <div
-                          className="h-full bg-chart-1 rounded-full"
-                          style={{ width: `${Math.min(stock.weight_pct || 0, 100)}%` }}
-                        />
+                    {/* Market price (1D%) */}
+                    <td className="py-4 px-5 text-right">
+                      <div className="font-mono text-sm font-medium text-foreground">{fmt(livePr)}</div>
+                      <div className={`text-[11px] font-mono mt-0.5 ${oneDayPct > 0 ? 'text-success' : oneDayPct < 0 ? 'text-destructive' : 'text-muted-foreground'}`}>
+                        {oneDayPct >= 0 ? '+' : ''}{oneDayPct.toFixed(2)}%
                       </div>
                     </td>
 
-                    {/* 360 Deep Dive Action */}
-                    <td className="py-3 px-4 text-center">
-                      {stock.symbol ? (
-                        <button
-                          type="button"
-                          onClick={() => onSelectStock && onSelectStock(stock.symbol)}
-                          className="inline-flex items-center gap-1 px-3 py-1 text-xs font-semibold text-foreground bg-muted hover:bg-muted/80 border border-border/60 rounded-full transition-all duration-150 active:scale-95"
-                          title={`Open 360° Analysis for ${stock.symbol}`}
-                        >
-                          <span>Analyze</span>
-                          <ChevronRight className="w-3 h-3 text-muted-foreground" />
-                        </button>
+                    {/* Returns (%) */}
+                    <td className="py-4 px-5 text-right">
+                      {stock.gain !== undefined ? (
+                        <div>
+                          <div className={`font-mono text-sm font-medium ${isGain ? 'text-success' : 'text-destructive'}`}>
+                            {isGain ? '+' : '-'}{fmt(stock.gain)}
+                          </div>
+                          <div className={`text-[11px] font-mono font-medium mt-0.5 ${isGain ? 'text-success' : 'text-destructive'}`}>
+                            {(stock.gain_pct || 0).toFixed(2)}%
+                          </div>
+                        </div>
                       ) : (
-                        <span className="text-muted-foreground/60 text-xs">—</span>
+                        <span className="text-muted-foreground text-sm">—</span>
                       )}
+                    </td>
+
+                    {/* Current (Invested) */}
+                    <td className="py-4 px-5 text-right">
+                      <div className="font-mono text-sm font-semibold text-foreground">{fmt(liveVal)}</div>
+                      <div className="text-[11px] text-muted-foreground font-mono mt-0.5">{fmt(costBasis)}</div>
                     </td>
                   </tr>
                 );
