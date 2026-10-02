@@ -232,10 +232,13 @@ function buildBearPoints(d) {
 
 // ── Portfolio API ────────────────────────────────────────────────────────────
 
-export async function uploadCASFile(file, password = '', enrich = true) {
+export async function uploadCASFile(file, password = '', enrich = true, currentPortfolio = null) {
   const formData = new FormData();
   formData.append('file', file);
   formData.append('password', password);
+  if (currentPortfolio) {
+    formData.append('portfolio', JSON.stringify(currentPortfolio));
+  }
 
   const response = await fetch(`/api/portfolio/parse?enrich=${enrich}`, {
     method: 'POST',
@@ -272,17 +275,66 @@ export async function uploadBrokerStatement(file, currentPortfolio = null) {
   return result;
 }
 
+export async function uploadEPFOPassbook(files, currentPortfolio = null) {
+  const formData = new FormData();
+  const fileList = Array.isArray(files)
+    ? files
+    : (files instanceof FileList ? Array.from(files) : (files ? [files] : []));
+
+  for (const file of fileList) {
+    formData.append('files', file);
+  }
+  if (fileList.length > 0) {
+    formData.append('file', fileList[0]);
+  }
+
+  if (currentPortfolio) {
+    formData.append('portfolio', JSON.stringify(currentPortfolio));
+  }
+
+  const response = await fetch('/api/portfolio/epfo-passbook', {
+    method: 'POST',
+    body: formData,
+  });
+  const result = await response.json();
+  if (!response.ok || !result.success) {
+    const err = new Error(result.error || 'Failed to process EPFO passbook');
+    err.errorType = result.error_type;
+    throw err;
+  }
+  return result;
+}
+export async function deleteEPFOAccount(memberId) {
+  const response = await fetch(`/api/portfolio/epfo-account/${encodeURIComponent(memberId)}`, {
+    method: 'DELETE',
+  });
+  const result = await response.json();
+  if (!response.ok || !result.success) {
+    throw new Error(result.error || 'Failed to delete EPFO account');
+  }
+  return result;
+}
+
 export async function fetchSamplePortfolio() {
   const response = await fetch('/api/portfolio/sample');
   if (!response.ok) throw new Error('Failed to load sample portfolio');
   return response.json();
 }
 
-export async function savePortfolio(holdings, meta = {}) {
+export async function savePortfolio(portfolio, meta = {}) {
+  const payload = Array.isArray(portfolio)
+    ? portfolio
+    : {
+      ...portfolio,
+      meta: {
+        ...(portfolio?.meta || {}),
+        ...meta
+      }
+    };
   const response = await fetch('/api/portfolio/save', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ holdings, meta }),
+    body: JSON.stringify(payload),
   });
   if (!response.ok) throw new Error('Failed to save portfolio');
   return response.json();

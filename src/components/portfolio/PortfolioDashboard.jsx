@@ -34,6 +34,8 @@ export default function PortfolioDashboard({
   onSelectStock = () => {},
   onUploadBroker = () => {},
   isBrokerUploading = false,
+  onUploadEPFO = () => {},
+  isEPFOUploading = false,
   onExportCSV = () => {},
   onExportJSON = () => {},
   onLoadDemo = () => {},
@@ -53,6 +55,7 @@ export default function PortfolioDashboard({
   };
 
   const fileInputRef = useRef(null);
+  const epfoFileInputRef = useRef(null);
 
   // Helper for masking numbers
   const mask = (valStr) => {
@@ -78,6 +81,7 @@ export default function PortfolioDashboard({
   }, [portfolioData, stocks]);
   const mutualFunds = useMemo(() => portfolioData?.mutual_funds || [], [portfolioData]);
   const bonds = useMemo(() => portfolioData?.bonds || [], [portfolioData]);
+  const epfoAccounts = useMemo(() => portfolioData?.epfo_accounts || [], [portfolioData]);
   const historical = useMemo(() => portfolioData?.historical_valuations || portfolioData?.meta?.historical_valuations || [], [portfolioData]);
   const summary = portfolioData?.summary || {};
   const analytics = portfolioData?.analytics || null;
@@ -87,8 +91,8 @@ export default function PortfolioDashboard({
   const stocksVal = summary.total_stocks_value || stocks.reduce((s, h) => s + (h.live_value || h.value || 0), 0);
   const mfVal = summary.total_mf_value || mutualFunds.reduce((s, m) => s + (m.value || 0), 0);
   const bondsVal = summary.total_bonds_value || bonds.reduce((s, b) => s + (b.live_value || b.value || 0), 0);
-  const totalNetWorth = summary.total_portfolio_value || (stocksVal + mfVal + bondsVal);
-
+  const epfoVal = summary.total_epfo_value || epfoAccounts.reduce((s, a) => s + (a.total_balance || 0), 0);
+  const totalNetWorth = summary.total_portfolio_value || (stocksVal + mfVal + bondsVal + epfoVal);
   const stocksCost = summary.total_stocks_invested || stocks.reduce((s, h) => s + (h.cost_basis || ((h.price || 0) * (h.quantity || 0))), 0);
   const mfCost = mutualFunds.reduce((s, m) => s + (m.cost_basis || (m.value || 0)), 0);
   const bondsCost = summary.total_bonds_invested || bonds.reduce((s, b) => s + (b.cost_basis || ((b.price || 0) * (b.quantity || 0))), 0);
@@ -104,6 +108,7 @@ export default function PortfolioDashboard({
   const stocksPct = totalNetWorth > 0 ? (stocksVal / totalNetWorth) * 100 : 0;
   const mfPct = totalNetWorth > 0 ? (mfVal / totalNetWorth) * 100 : 0;
   const bondsPct = totalNetWorth > 0 ? (bondsVal / totalNetWorth) * 100 : 0;
+  const epfoPct = totalNetWorth > 0 ? (epfoVal / totalNetWorth) * 100 : 0;
 
   // Cross-Asset Top Holdings (ranked by market value across all categories)
   const topHoldings = useMemo(() => {
@@ -203,8 +208,19 @@ export default function PortfolioDashboard({
         targetTab: 'mutual_funds'
       });
     }
+    if (epfoAccounts.length > 0) {
+      list.push({
+        name: 'EPFO Provident Fund',
+        subtitle: `${epfoAccounts.length} Member Account${epfoAccounts.length > 1 ? 's' : ''} • Sovereign Backed`,
+        count: epfoAccounts.map(a => a.establishment_name).filter(Boolean).slice(0, 2).join(', ') || 'Provident Fund Passbook',
+        value: epfoVal,
+        badge: 'EPF Fixed Income',
+        badgeClass: 'bg-emerald-500/10 text-emerald-600 border-emerald-500/30',
+        targetTab: 'epfo'
+      });
+    }
     return list;
-  }, [stocks, bonds, mutualFunds, stocksVal, bondsVal, mfVal, summary]);
+  }, [stocks, bonds, mutualFunds, epfoAccounts, stocksVal, bondsVal, mfVal, epfoVal, summary]);
 
   // Chart data
   const chartData = useMemo(() => {
@@ -320,6 +336,35 @@ export default function PortfolioDashboard({
             )}
             <span>{isBrokerUploading ? 'Importing...' : 'Sync Broker Sheet'}</span>
           </button>
+          {/* Hidden EPFO PDF input */}
+          <input
+            ref={epfoFileInputRef}
+            type="file"
+            multiple
+            accept=".pdf,application/pdf"
+            className="hidden"
+            onChange={(e) => {
+              if (e.target.files && e.target.files.length > 0) {
+                onUploadEPFO(Array.from(e.target.files));
+                e.target.value = '';
+              }
+            }}
+          />
+
+          <button
+            type="button"
+            onClick={() => epfoFileInputRef.current?.click()}
+            disabled={isEPFOUploading}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-foreground bg-card hover:bg-muted/80 border border-border/80 rounded-full transition-all duration-150 active:scale-95 shadow-xs disabled:opacity-50"
+            title="Upload one or more official EPFO Member Passbook PDFs"
+          >
+            {isEPFOUploading ? (
+              <RefreshCw className="w-3.5 h-3.5 text-muted-foreground animate-spin" />
+            ) : (
+              <Upload className="w-3.5 h-3.5 text-emerald-600" />
+            )}
+            <span>{isEPFOUploading ? 'Importing...' : 'Sync EPFO Passbook'}</span>
+          </button>
 
           <button
             type="button"
@@ -391,7 +436,7 @@ export default function PortfolioDashboard({
               {formatCurrency(totalCostBasis)}
             </div>
             <div className="text-[11px] text-muted-foreground">
-              {stocks.length + mutualFunds.length + bonds.length} Assets Tracked
+              {stocks.length + mutualFunds.length + bonds.length + epfoAccounts.length} Assets Tracked
             </div>
           </div>
         </div>
@@ -414,6 +459,13 @@ export default function PortfolioDashboard({
               className="bg-warning transition-all duration-500"
               title={`Bonds & SGB: ${bondsPct.toFixed(1)}%`}
             />
+            {epfoPct > 0 && (
+              <div
+                style={{ width: `${epfoPct}%` }}
+                className="bg-emerald-600 transition-all duration-500"
+                title={`EPFO Provident Fund: ${epfoPct.toFixed(1)}%`}
+              />
+            )}
           </div>
 
           {/* Allocation Legend */}
@@ -432,6 +484,12 @@ export default function PortfolioDashboard({
                 <span>Bonds & SGB: <strong className="text-foreground font-mono">{bondsPct.toFixed(1)}%</strong></span>
               </span>
             </div>
+              {epfoVal > 0 && (
+                <span className="flex items-center gap-1.5">
+                  <span className="w-2 h-2 rounded-full bg-emerald-600" />
+                  <span>EPFO: <strong className="text-foreground font-mono">{epfoPct.toFixed(1)}%</strong></span>
+                </span>
+              )}
             {summary.statement_period?.to && (
               <span className="text-[11px] font-mono text-muted-foreground/80">
                 Statement: {summary.statement_period.to}
@@ -442,7 +500,7 @@ export default function PortfolioDashboard({
       </div>
 
       {/* ── 2. THREE MULTI-ASSET CARDS (Quick Drill-Down to Holdings) ── */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div className={`grid grid-cols-1 ${epfoVal > 0 ? 'md:grid-cols-2 lg:grid-cols-4' : 'md:grid-cols-3'} gap-4`}>
         {/* Card 1: Direct Stocks & ETFs */}
         <div
           onClick={() => onNavigateToHoldings('stocks')}
@@ -552,6 +610,41 @@ export default function PortfolioDashboard({
             <span className="font-mono font-medium text-foreground">{bondsPct.toFixed(1)}% share</span>
           </div>
         </div>
+        {/* Card 4: EPFO Provident Fund */}
+        {epfoVal > 0 && (
+          <div
+            onClick={() => onNavigateToHoldings('epfo')}
+            className="glass-card p-5 space-y-3 cursor-pointer hover:border-emerald-500/40 transition-all duration-200 group relative"
+          >
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <div className="w-7 h-7 rounded-lg bg-emerald-500/10 flex items-center justify-center text-emerald-600">
+                  <ShieldCheck className="w-4 h-4" />
+                </div>
+                <span className="text-xs font-semibold text-foreground">EPFO Provident Fund</span>
+              </div>
+              <ArrowUpRight className="w-4 h-4 text-muted-foreground group-hover:text-emerald-600 transition-colors" />
+            </div>
+
+            <div>
+              <div className="font-mono text-2xl font-bold text-foreground">
+                {formatCurrency(epfoVal)}
+              </div>
+              <div className="text-xs text-muted-foreground flex items-center gap-1.5 mt-0.5">
+                <span>{epfoAccounts.length} Account{epfoAccounts.length > 1 ? 's' : ''}</span>
+                <span>•</span>
+                <span className="text-emerald-600 font-medium font-mono">
+                  Sovereign Guaranteed
+                </span>
+              </div>
+            </div>
+
+            <div className="pt-2 border-t border-border/30 flex items-center justify-between text-[11px] text-muted-foreground">
+              <span>8.25% p.a. FY24</span>
+              <span className="font-mono font-medium text-foreground">{epfoPct.toFixed(1)}% share</span>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* ── 3. TWO-COLUMN DASHBOARD GRID (Wealthfolio Layout) ── */}
@@ -640,7 +733,7 @@ export default function PortfolioDashboard({
                 onClick={() => onNavigateToHoldings('stocks')}
                 className="text-xs font-semibold text-muted-foreground hover:text-foreground inline-flex items-center gap-1 transition-colors"
               >
-                <span>View all {stocks.length + mutualFunds.length + bonds.length}</span>
+                <span>View all {stocks.length + mutualFunds.length + bonds.length + epfoAccounts.length}</span>
                 <ChevronRight className="w-3.5 h-3.5" />
               </button>
             </div>

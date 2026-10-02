@@ -2,6 +2,8 @@ import { useState, useEffect, useCallback } from 'react';
 import {
   uploadCASFile,
   uploadBrokerStatement,
+  uploadEPFOPassbook,
+  deleteEPFOAccount,
   fetchSamplePortfolio,
   savePortfolio,
   fetchSavedPortfolio,
@@ -16,6 +18,7 @@ let globalLoading = false;
 let globalError = null;
 let globalBrokerNotice = null;
 let globalIsBrokerUploading = false;
+let globalIsEPFOUploading = false;
 let globalSaveStatus = null;
 let isInitialized = false;
 
@@ -67,7 +70,7 @@ export function usePortfolio() {
     if (cached) {
       try {
         const parsed = JSON.parse(cached);
-        if (parsed && (parsed.stocks?.length > 0 || parsed.holdings?.length > 0 || parsed.mutual_funds?.length > 0)) {
+        if (parsed && (parsed.stocks?.length > 0 || parsed.holdings?.length > 0 || parsed.mutual_funds?.length > 0 || parsed.epfo_accounts?.length > 0)) {
           const norm = (arr) => Array.isArray(arr) ? arr.map(normalizeHolding) : arr;
           globalPortfolio = {
             ...parsed,
@@ -129,7 +132,7 @@ export function usePortfolio() {
     // Fallback to SQLite store
     fetchSavedPortfolio()
       .then(res => {
-        if (res?.data && (res.data.holdings?.length > 0 || res.data.stocks?.length > 0 || res.data.mutual_funds?.length > 0)) {
+        if (res?.data && (res.data.holdings?.length > 0 || res.data.stocks?.length > 0 || res.data.mutual_funds?.length > 0 || res.data.epfo_accounts?.length > 0)) {
           globalPortfolio = res.data;
           try {
             localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(res.data));
@@ -192,7 +195,7 @@ export function usePortfolio() {
     globalError = null;
     emitChange();
     try {
-      const result = await uploadCASFile(file, password, enrichPrices);
+      const result = await uploadCASFile(file, password, enrichPrices, globalPortfolio);
       updatePortfolioState(result);
       try {
         await savePortfolio(result, result.meta || {});
@@ -205,6 +208,48 @@ export function usePortfolio() {
     } finally {
       globalLoading = false;
       emitChange();
+    }
+  }, [updatePortfolioState]);
+
+  const handleUploadEPFOPassbook = useCallback(async (files) => {
+    if (!files) return;
+    const fileList = Array.isArray(files)
+      ? files
+      : (files instanceof FileList ? Array.from(files) : [files]);
+    if (fileList.length === 0) return;
+
+    globalIsEPFOUploading = true;
+    globalError = null;
+    emitChange();
+
+    try {
+      const result = await uploadEPFOPassbook(fileList, globalPortfolio);
+      if (!result.portfolio) {
+        throw new Error('The EPFO passbook(s) could not be merged into the portfolio.');
+      }
+      updatePortfolioState(result.portfolio);
+      return result.portfolio;
+    } catch (err) {
+      globalError = err.message || 'Failed to import EPFO passbook(s).';
+      emitChange();
+      throw err;
+    } finally {
+      globalIsEPFOUploading = false;
+      emitChange();
+    }
+  }, [updatePortfolioState]);
+  const handleDeleteEPFOAccount = useCallback(async (memberId) => {
+    if (!memberId) return;
+    try {
+      const res = await deleteEPFOAccount(memberId);
+      if (res.portfolio) {
+        updatePortfolioState(res.portfolio);
+      }
+      return res;
+    } catch (err) {
+      globalError = err.message || 'Failed to remove EPFO account.';
+      emitChange();
+      throw err;
     }
   }, [updatePortfolioState]);
 
@@ -325,6 +370,7 @@ export function usePortfolio() {
     error: globalError,
     brokerNotice: globalBrokerNotice,
     isBrokerUploading: globalIsBrokerUploading,
+    isEPFOUploading: globalIsEPFOUploading,
     saveStatus: globalSaveStatus,
     setPortfolioData: updatePortfolioState,
     updatePortfolioState,
@@ -332,7 +378,9 @@ export function usePortfolio() {
     handleParseStatement,
     handleUploadBrokerSpreadsheet,
     handleLoadDemo,
+    handleUploadEPFOPassbook,
     handleClearPortfolio,
+    handleDeleteEPFOAccount,
     handleSaveToDatabase,
     handleExportCSV,
     handleExportJSON,

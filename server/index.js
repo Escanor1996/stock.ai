@@ -3,7 +3,7 @@ import express from 'express';
 import cors from 'cors';
 import { getStockData, getHistoricalPrices, searchStocks } from './services/stockService.js';
 import { generateAIScore, generateAIVerdict, generateAIAnalysis } from './services/aiService.js';
-import { parseCASFile, parseBrokerSpreadsheet, mergeBrokerPrices, getSamplePortfolio, exportToCSV } from './services/casService.js';
+import { parseCASFile, parseBrokerSpreadsheet, parseEPFOPassbook, mergeBrokerPrices, mergeEPFOAccounts, getSamplePortfolio, exportToCSV } from './services/casService.js';
 import * as db from './db.js';
 import multer from 'multer';
 import os from 'os';
@@ -156,7 +156,16 @@ app.post('/api/portfolio/parse', upload.single('file'), async (req, res) => {
   const enrich = req.query.enrich !== 'false';
 
   try {
-    const result = await parseCASFile(req.file.path, password, enrich);
+    let result = await parseCASFile(req.file.path, password, enrich);
+    if (req.body.portfolio) {
+      const currentPortfolio = typeof req.body.portfolio === 'string'
+        ? JSON.parse(req.body.portfolio)
+        : req.body.portfolio;
+      const existingEPFOAccounts = currentPortfolio?.epfo_accounts || currentPortfolio?.meta?.epfo_accounts;
+      if (Array.isArray(existingEPFOAccounts) && existingEPFOAccounts.length > 0) {
+        result = mergeEPFOAccounts(result, { accounts: existingEPFOAccounts });
+      }
+    }
     res.json(result);
   } catch (err) {
     console.error('CAS parse error:', err.message);
@@ -166,6 +175,106 @@ app.post('/api/portfolio/parse', upload.single('file'), async (req, res) => {
       error_type: err.errorType || 'PARSE_ERROR',
       error: err.message || 'Failed to process CAS statement'
     });
+  }
+});
+
+// POST /api/portfolio/epfo-passbook — Parse and merge user-exported official EPFO passbook PDFs (single or multiple)
+app.post('/api/portfolio/epfo-passbook', upload.any(), async (req, res) => {
+  const uploadedFiles = Array.isArray(req.files) && req.files.length > 0
+    ? req.files
+    : (req.file ? [req.file] : []);
+
+  if (uploadedFiles.length === 0) {
+    return res.status(400).json({ success: false, error: 'No EPFO passbook PDF uploaded' });
+  }
+
+  try {
+    let currentPortfolio = req.body.portfolio
+      ? (typeof req.body.portfolio === 'string' ? JSON.parse(req.body.portfolio) : req.body.portfolio)
+      : (db.getPortfolioHoldings() || {});
+
+    const allAccounts = [];
+    const errors = [];
+
+    for (const file of uploadedFiles) {
+      try {
+        const epfoData = await parseEPFOPassbook(file.path);
+        if (Array.isArray(epfoData.accounts)) {
+          allAccounts.push(...epfoData.accounts);
+        }
+      } catch (fileErr) {
+        console.error(`Error parsing passbook ${file.originalname}:`, fileErr.message);
+        errors.push({ file: file.originalname, error: fileErr.message });
+      }
+    }
+
+    if (allAccounts.length === 0) {
+      const firstError = errors[0]?.error || 'Failed to parse EPFO passbook(s). Ensure valid official EPFO passbook PDFs are uploaded.';
+      return res.status(422).json({
+        success: false,
+        error_type: 'EPFO_PARSE_ERROR',
+        error: firstError,
+        details: errors
+      });
+    }
+
+    const combinedData = {
+      success: true,
+      source: 'EPFO Member Passbook',
+      accounts: allAccounts
+    };
+
+    const portfolio = mergeEPFOAccounts(currentPortfolio, combinedData);
+    db.savePortfolioHoldings(portfolio, portfolio.meta || {});
+
+    res.json({
+      success: true,
+      epfo_data: combinedData,
+      portfolio,
+      errors: errors.length > 0 ? errors : undefined
+    });
+  } catch (err) {
+    console.error('EPFO passbook merge error:', err.message);
+    res.status(422).json({
+      success: false,
+      error_type: err.errorType || 'EPFO_PARSE_ERROR',
+      error: err.message || 'Failed to process EPFO passbook(s)'
+    });
+  }
+});
+// DELETE /api/portfolio/epfo-account/:memberId — Remove a specific EPFO member account
+app.delete('/api/portfolio/epfo-account/:memberId', (req, res) => {
+  const memberId = req.params.memberId?.toUpperCase();
+  if (!memberId) {
+    return res.status(400).json({ success: false, error: 'Member ID is required' });
+  }
+
+  try {
+    const portfolio = db.getPortfolioHoldings();
+    if (!portfolio || !Array.isArray(portfolio.epfo_accounts)) {
+      return res.status(404).json({ success: false, error: 'No EPFO accounts found' });
+    }
+
+    const filtered = portfolio.epfo_accounts.filter(
+      acc => String(acc.member_id).toUpperCase() !== memberId
+    );
+
+    portfolio.epfo_accounts = filtered;
+    if (portfolio.meta) {
+      portfolio.meta.epfo_accounts = filtered;
+    }
+
+    db.savePortfolioHoldings(portfolio, portfolio.meta || {});
+    const updated = db.getPortfolioHoldings();
+
+    res.json({
+      success: true,
+      message: `Account ${memberId} removed successfully`,
+      portfolio: updated
+    });
+  } catch (err) {
+    console.error('Delete EPFO account error:', err);
+    res.status(500).json({ success: false, error: 'Failed to delete EPFO account' });
   }
 });
 
@@ -222,7 +331,7 @@ app.get('/api/portfolio/sample', (req, res) => {
 // POST /api/portfolio/save — Persist portfolio to local SQLite
 app.post('/api/portfolio/save', (req, res) => {
   const payload = req.body;
-  if (!payload || (!payload.holdings && !payload.stocks && !payload.mutual_funds && !Array.isArray(payload))) {
+  if (!payload || (!payload.holdings && !payload.stocks && !payload.mutual_funds && !payload.epfo_accounts && !Array.isArray(payload))) {
     return res.status(400).json({ success: false, error: 'Valid portfolio payload is required' });
   }
 
@@ -271,7 +380,7 @@ app.delete('/api/portfolio', (req, res) => {
 // POST /api/portfolio/export/csv — Generate downloadable CSV
 app.post('/api/portfolio/export/csv', (req, res) => {
   const payload = req.body;
-  if (!payload || (!payload.holdings && !payload.stocks && !Array.isArray(payload))) {
+  if (!payload || (!payload.holdings && !payload.stocks && !payload.mutual_funds && !payload.epfo_accounts && !Array.isArray(payload))) {
     return res.status(400).json({ success: false, error: 'Holdings or portfolio payload is required' });
   }
 

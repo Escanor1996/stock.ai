@@ -341,11 +341,26 @@ export default function App() {
             onExportJSON={portfolio.handleExportJSON}
             onLoadDemo={portfolio.handleLoadDemo}
             onParseStatement={portfolio.handleParseStatement}
+            onUploadEPFO={portfolio.handleUploadEPFOPassbook}
+            isEPFOUploading={portfolio.isEPFOUploading}
+            error={portfolio.error}
           />
         ) : (activeTab === 'holdings' || activeTab === 'portfolio') ? (
           <PortfolioPage
+            portfolioData={portfolio.portfolioData}
             onSelectStock={handleSelectStock}
             initialTab={holdingsTab}
+            onUploadBroker={portfolio.handleUploadBrokerSpreadsheet}
+            isBrokerUploading={portfolio.isBrokerUploading}
+            onUploadEPFO={portfolio.handleUploadEPFOPassbook}
+            isEPFOUploading={portfolio.isEPFOUploading}
+            onDeleteEPFO={portfolio.handleDeleteEPFOAccount}
+            onExportCSV={portfolio.handleExportCSV}
+            onExportJSON={portfolio.handleExportJSON}
+            onSave={portfolio.handleSaveToDatabase}
+            onClear={portfolio.handleClearPortfolio}
+            saveStatus={portfolio.saveStatus}
+            error={portfolio.error}
           />
         ) : activeTab === 'watchlist' ? (
           <Watchlist

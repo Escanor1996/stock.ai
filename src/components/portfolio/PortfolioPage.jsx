@@ -7,9 +7,11 @@ import AnalyticsDashboard from './AnalyticsDashboard';
 import StocksTable from './StocksTable';
 import MutualFundsTable from './MutualFundsTable';
 import BondsTable from './BondsTable';
+import EpfoTable from './EpfoTable';
 import {
   uploadCASFile,
   uploadBrokerStatement,
+  uploadEPFOPassbook,
   fetchSamplePortfolio,
   savePortfolio,
   fetchSavedPortfolio,
@@ -18,11 +20,28 @@ import {
 } from '../../utils/api';
 const LOCAL_STORAGE_KEY = 'stock_ai_cached_portfolio';
 
-export default function PortfolioPage({ onSelectStock = () => {}, initialTab = 'stocks' }) {
-  const [portfolioData, setPortfolioData] = useState(null);
+export default function PortfolioPage({
+  portfolioData: externalPortfolioData = undefined,
+  onSelectStock = () => {},
+  initialTab = 'stocks',
+  onUploadBroker = null,
+  isBrokerUploading: externalIsBrokerUploading = undefined,
+  onUploadEPFO = null,
+  isEPFOUploading: externalIsEPFOUploading = undefined,
+  onDeleteEPFO = null,
+  onExportCSV = null,
+  onExportJSON = null,
+  onSave = null,
+  onClear = null,
+  saveStatus: externalSaveStatus = undefined,
+  error: externalError = undefined
+}) {
+  const [internalPortfolioData, setInternalPortfolioData] = useState(null);
+  const portfolioData = externalPortfolioData !== undefined ? externalPortfolioData : internalPortfolioData;
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState(null);
-
+  const [localError, setLocalError] = useState(null);
+  const error = externalError !== undefined ? externalError : localError;
+  const setError = setLocalError;
   // Tabs: 'stocks' | 'mutual_funds' | 'bonds' | 'analytics'
   const [activeTab, setActiveTab] = useState(initialTab || 'stocks');
   // Chart toggle: 'value' | 'change_pct'
@@ -39,6 +58,8 @@ export default function PortfolioPage({ onSelectStock = () => {}, initialTab = '
   const [isExporting, setIsExporting] = useState(false);
   const [isBrokerUploading, setIsBrokerUploading] = useState(false);
   const [brokerNotice, setBrokerNotice] = useState(null);
+  const [isEPFOUploadingLocal, setIsEPFOUploadingLocal] = useState(false);
+  const isEPFOUploading = externalIsEPFOUploading !== undefined ? externalIsEPFOUploading : isEPFOUploadingLocal;
   // Load cached or saved portfolio on mount
   useEffect(() => {
     const cached = localStorage.getItem(LOCAL_STORAGE_KEY);
@@ -63,7 +84,7 @@ export default function PortfolioPage({ onSelectStock = () => {}, initialTab = '
 
   // Sync to localStorage
   const updatePortfolioState = (data) => {
-    setPortfolioData(data);
+    setInternalPortfolioData(data);
     if (data) {
       try {
         localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(data));
@@ -160,6 +181,43 @@ export default function PortfolioPage({ onSelectStock = () => {}, initialTab = '
     a.click();
     URL.revokeObjectURL(url);
     a.remove();
+  };
+
+  const handleUploadEPFOPassbook = async (files) => {
+    if (onUploadEPFO) {
+      return onUploadEPFO(files);
+    }
+    if (!files) return;
+    const fileList = Array.isArray(files)
+      ? files
+      : (files instanceof FileList ? Array.from(files) : [files]);
+    if (fileList.length === 0) return;
+
+    setIsEPFOUploadingLocal(true);
+    setError(null);
+    try {
+      const res = await uploadEPFOPassbook(fileList, portfolioData);
+      if (res.portfolio) {
+        updatePortfolioState(res.portfolio);
+      }
+    } catch (err) {
+      setError(err.message || 'Failed to import EPFO passbook(s).');
+    } finally {
+      setIsEPFOUploadingLocal(false);
+    }
+  };
+  const handleDeleteEPFO = async (memberId) => {
+    if (onDeleteEPFO) {
+      return onDeleteEPFO(memberId);
+    }
+    try {
+      const res = await deleteEPFOAccount(memberId);
+      if (res.portfolio) {
+        updatePortfolioState(res.portfolio);
+      }
+    } catch (err) {
+      setError(err.message || 'Failed to remove EPFO account.');
+    }
   };
 
   // Upload broker spreadsheet (Groww, Zerodha, Upstox, etc.) to set accurate buy prices
@@ -460,6 +518,10 @@ export default function PortfolioPage({ onSelectStock = () => {}, initialTab = '
     return portfolioData?.bonds || [];
   }, [portfolioData]);
 
+  const epfoAccounts = useMemo(() => {
+    return portfolioData?.epfo_accounts || [];
+  }, [portfolioData]);
+
   const historicalValuations = useMemo(() => {
     return portfolioData?.historical_valuations || portfolioData?.meta?.historical_valuations || [];
   }, [portfolioData]);
@@ -474,7 +536,8 @@ export default function PortfolioPage({ onSelectStock = () => {}, initialTab = '
 
   // Aggregated Summary values
   const summary = portfolioData?.summary || {};
-  const totalVal = summary.total_portfolio_value || (stocksList.reduce((s, h) => s + (h.live_value || h.value || 0), 0) + mutualFundsList.reduce((s, m) => s + (m.value || 0), 0) + bondsList.reduce((s, b) => s + (b.value || 0), 0));
+  const epfoVal = summary.total_epfo_value || epfoAccounts.reduce((s, a) => s + (a.total_balance || 0), 0);
+  const totalVal = summary.total_portfolio_value || (stocksList.reduce((s, h) => s + (h.live_value || h.value || 0), 0) + mutualFundsList.reduce((s, m) => s + (m.value || 0), 0) + bondsList.reduce((s, b) => s + (b.value || 0), 0) + epfoVal);
   const stocksVal = summary.total_stocks_value || summary.live_stocks_value || stocksList.reduce((s, h) => s + (h.live_value || h.value || 0), 0);
   const directStocksVal = summary.direct_stocks_value || directStocksList.reduce((s, h) => s + (h.live_value || h.value || 0), 0);
   const etfsVal = summary.etfs_value || etfsList.reduce((s, h) => s + (h.live_value || h.value || 0), 0);
@@ -494,6 +557,8 @@ export default function PortfolioPage({ onSelectStock = () => {}, initialTab = '
         onSave={handleSaveToDatabase}
         onClear={handleClearPortfolio}
         onUploadBroker={handleUploadBrokerSpreadsheet}
+        onUploadEPFO={handleUploadEPFOPassbook}
+        isEPFOUploading={isEPFOUploading}
         saveStatus={saveStatus}
         isExporting={isExporting}
         isBrokerUploading={isBrokerUploading}
@@ -526,6 +591,8 @@ export default function PortfolioPage({ onSelectStock = () => {}, initialTab = '
             etfsList={etfsList}
             mutualFundsList={mutualFundsList}
             bondsList={bondsList}
+            epfoAccounts={epfoAccounts}
+            epfoVal={epfoVal}
             totalVal={totalVal}
             stocksVal={stocksVal}
             mfVal={mfVal}
@@ -543,6 +610,7 @@ export default function PortfolioPage({ onSelectStock = () => {}, initialTab = '
                 { key: 'stocks', label: 'STOCKS' },
                 { key: 'mutual_funds', label: 'MUTUAL FUNDS' },
                 ...(bondsList.length > 0 ? [{ key: 'bonds', label: 'BONDS' }] : []),
+                { key: 'epfo', label: `EPFO${epfoAccounts.length > 0 ? ` (${epfoAccounts.length})` : ''}` },
                 { key: 'analytics', label: 'ANALYTICS' },
               ].map(tab => (
                 <button
@@ -607,6 +675,16 @@ export default function PortfolioPage({ onSelectStock = () => {}, initialTab = '
             />
           )}
 
+          {activeTab === 'epfo' && (
+            <EpfoTable
+              epfoAccounts={epfoAccounts}
+              summary={summary}
+              onUploadEPFO={handleUploadEPFOPassbook}
+              isEPFOUploading={isEPFOUploading}
+              onDeleteAccount={handleDeleteEPFO}
+            />
+          )}
+
           {activeTab === 'analytics' && (
             <AnalyticsDashboard
               stocksList={stocksList}
@@ -615,6 +693,8 @@ export default function PortfolioPage({ onSelectStock = () => {}, initialTab = '
               mutualFundsList={mutualFundsList}
               bondsList={bondsList}
               totalVal={totalVal}
+              epfoAccounts={epfoAccounts}
+              epfoVal={epfoVal}
               directStocksVal={directStocksVal}
               etfsVal={etfsVal}
               mfVal={mfVal}

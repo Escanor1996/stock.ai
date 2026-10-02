@@ -105,12 +105,18 @@ function DonutSection({ title, data, centerLabel }) {
                 <div className="text-[11px] text-muted-foreground">{item.pct.toFixed(2)}%</div>
               </div>
               <div className="text-right w-28">
-                <div className={`text-sm font-medium font-mono ${isGain ? 'text-success' : 'text-destructive'}`}>
-                  {isGain ? '+' : '-'}{fmtFull(item.gain)}
-                </div>
-                <div className={`text-[11px] font-mono ${isGain ? 'text-success' : 'text-destructive'}`}>
-                  ({isGain ? '+' : ''}{item.gainPct.toFixed(2)}%)
-                </div>
+                {item.has_return === false ? (
+                  <div className="text-sm font-medium font-mono text-muted-foreground">—</div>
+                ) : (
+                  <>
+                    <div className={`text-sm font-medium font-mono ${isGain ? 'text-success' : 'text-destructive'}`}>
+                      {isGain ? '+' : '-'}{fmtFull(item.gain)}
+                    </div>
+                    <div className={`text-[11px] font-mono ${isGain ? 'text-success' : 'text-destructive'}`}>
+                      ({isGain ? '+' : ''}{item.gainPct.toFixed(2)}%)
+                    </div>
+                  </>
+                )}
               </div>
             </div>
           );
@@ -128,11 +134,13 @@ export default function AnalyticsDashboard({
   etfsList = [],
   mutualFundsList = [],
   bondsList = [],
+  epfoAccounts = [],
   totalVal = 0,
   directStocksVal = 0,
   etfsVal = 0,
   mfVal = 0,
   bondsVal = 0,
+  epfoVal = 0,
   summary = {},
   historicalValuations = [],
   transactionsList = [],
@@ -178,8 +186,20 @@ export default function AnalyticsDashboard({
         pct: (bondsVal / safeTotal) * 100, gain, gainPct, color: '#F59E0B'
       });
     }
+    if (epfoVal > 0) {
+      items.push({
+        name: 'EPF',
+        value: epfoVal,
+        label: `${epfoAccounts.length} account${epfoAccounts.length > 1 ? 's' : ''}`,
+        pct: (epfoVal / safeTotal) * 100,
+        gain: 0,
+        gainPct: 0,
+        has_return: false,
+        color: '#10b981'
+      });
+    }
     return items;
-  }, [stocksList, mutualFundsList, bondsList, directStocksVal, etfsVal, mfVal, bondsVal, safeTotal]);
+  }, [stocksList, mutualFundsList, bondsList, epfoAccounts, directStocksVal, etfsVal, mfVal, bondsVal, epfoVal, safeTotal]);
 
   // ── STRATEGY LENS (Direct / ETFs / Active MFs / Gold Hedge) ──
   const strategyLens = useMemo(() => {
@@ -214,8 +234,20 @@ export default function AnalyticsDashboard({
         pct: (bondsVal / safeTotal) * 100, gain, gainPct, color: '#F59E0B'
       });
     }
+    if (epfoVal > 0) {
+      items.push({
+        name: 'Provident Fund (EPFO)',
+        value: epfoVal,
+        label: `${epfoAccounts.length} account${epfoAccounts.length > 1 ? 's' : ''}`,
+        pct: (epfoVal / safeTotal) * 100,
+        gain: 0,
+        gainPct: 0,
+        has_return: false,
+        color: '#10b981'
+      });
+    }
     return items;
-  }, [directStocksList, etfsList, mutualFundsList, bondsList, directStocksVal, etfsVal, mfVal, bondsVal, safeTotal]);
+  }, [directStocksList, etfsList, mutualFundsList, bondsList, epfoAccounts, directStocksVal, etfsVal, mfVal, bondsVal, epfoVal, safeTotal]);
 
   // ── P&L BAR CHART DATA ──
   const plData = useMemo(() => {

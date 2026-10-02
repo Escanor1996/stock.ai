@@ -416,6 +416,7 @@ export function savePortfolioHoldings(portfolioInput, metaInput = {}) {
       if (portfolioInput.investor_info) meta.investor_info = portfolioInput.investor_info;
       if (portfolioInput.file_type) meta.file_type = portfolioInput.file_type;
       if (portfolioInput.analytics) meta.analytics = portfolioInput.analytics;
+      if (Array.isArray(portfolioInput.epfo_accounts)) meta.epfo_accounts = portfolioInput.epfo_accounts;
     }
 
     for (const h of allItems) {
@@ -472,10 +473,62 @@ export function getPortfolioHoldings() {
   const mutualFunds = rows.filter(r => r.category === 'MUTUAL_FUNDS' || r.asset_type === 'MUTUAL_FUND');
   const bonds = rows.filter(r => r.category === 'BONDS_DEBT' || r.asset_type === 'BOND');
 
-  const totalStocksVal = stocks.reduce((sum, s) => sum + (s.live_value || s.value || 0), 0);
+  const numericValue = (value) => {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : 0;
+  };
+  const itemValue = (item) => numericValue(item.live_value ?? item.value);
+  const itemCost = (item) => item.cost_basis !== undefined && item.cost_basis !== null
+    ? numericValue(item.cost_basis)
+    : numericValue(item.price) * numericValue(item.quantity);
+  const roundCurrency = (value) => Math.round(numericValue(value) * 100) / 100;
+
+  const epfoAccounts = Array.isArray(meta.epfo_accounts)
+    ? meta.epfo_accounts.map((account) => {
+      const employeeShare = roundCurrency(account.employee_share);
+      const employerShare = roundCurrency(account.employer_share);
+      const pensionBalance = roundCurrency(account.pension_balance);
+      const totalBalance = account.total_balance !== undefined && account.total_balance !== null && account.total_balance > 0
+        ? roundCurrency(account.total_balance)
+        : roundCurrency(employeeShare + employerShare);
+      return {
+        ...account,
+        employee_share: employeeShare,
+        employer_share: employerShare,
+        pension_balance: pensionBalance,
+        total_balance: totalBalance
+      };
+    })
+    : [];
+  const epfoTotals = epfoAccounts.reduce((totals, account) => ({
+    employee_share: totals.employee_share + account.employee_share,
+    employer_share: totals.employer_share + account.employer_share,
+    pension_balance: totals.pension_balance + account.pension_balance
+  }), { employee_share: 0, employer_share: 0, pension_balance: 0 });
+  const epfoValue = roundCurrency(
+    epfoAccounts.reduce((sum, account) => sum + numericValue(account.total_balance), 0)
+  );
+
+  const totalStocksVal = stocks.reduce((sum, item) => sum + itemValue(item), 0);
+  const directStocksVal = directStocks.reduce((sum, item) => sum + itemValue(item), 0);
+  const etfsVal = etfs.reduce((sum, item) => sum + itemValue(item), 0);
+  const totalMfVal = mutualFunds.reduce((sum, item) => sum + itemValue(item), 0);
+  const totalBondsVal = bonds.reduce((sum, item) => sum + itemValue(item), 0);
+  const stocksCost = stocks.reduce((sum, item) => sum + itemCost(item), 0);
+  const mfCost = mutualFunds.reduce((sum, item) => sum + itemCost(item), 0);
+  const bondsCost = bonds.reduce((sum, item) => sum + itemCost(item), 0);
+  const stocksGain = stocks.reduce((sum, item) => sum + numericValue(item.gain), 0);
+  const mfGain = mutualFunds.reduce((sum, item) => sum + numericValue(item.gain), 0);
+  const bondsGain = bonds.reduce((sum, item) => sum + numericValue(item.gain), 0);
+  const totalInvested = stocksCost + mfCost + bondsCost;
+  const totalGain = stocksGain + mfGain + bondsGain;
+  const totalPortfolioValue = totalStocksVal + totalMfVal + totalBondsVal + epfoValue;
+
   const aiScoresMap = getAllAIScores();
   for (const s of stocks) {
-    s.weight_pct = totalStocksVal > 0 ? Math.round(((s.live_value || s.value || 0) / totalStocksVal) * 10000) / 100 : 0;
+    const value = itemValue(s);
+    s.weight_pct = totalStocksVal > 0 ? roundCurrency((value / totalStocksVal) * 100) : 0;
+    s.total_weight_pct = totalPortfolioValue > 0 ? roundCurrency((value / totalPortfolioValue) * 100) : 0;
     const sym = (s.symbol || '').toUpperCase();
     const aiInfo = aiScoresMap[sym];
     if (aiInfo && aiInfo.score != null) {
@@ -493,14 +546,56 @@ export function getPortfolioHoldings() {
       s.score_category = algoScore >= 80 ? 'Exceptional' : algoScore >= 65 ? 'Strong' : algoScore >= 50 ? 'Moderate' : 'High Risk';
     }
   }
-  const totalMfVal = mutualFunds.reduce((sum, m) => sum + (m.value || 0), 0);
   for (const m of mutualFunds) {
-    m.weight_pct = totalMfVal > 0 ? Math.round(((m.value || 0) / totalMfVal) * 10000) / 100 : 0;
+    const value = itemValue(m);
+    m.weight_pct = totalMfVal > 0 ? roundCurrency((value / totalMfVal) * 100) : 0;
+    m.total_weight_pct = totalPortfolioValue > 0 ? roundCurrency((value / totalPortfolioValue) * 100) : 0;
   }
-  const totalBondsVal = bonds.reduce((sum, b) => sum + (b.value || 0), 0);
   for (const b of bonds) {
-    b.weight_pct = totalBondsVal > 0 ? Math.round(((b.value || 0) / totalBondsVal) * 10000) / 100 : 0;
+    const value = itemValue(b);
+    b.weight_pct = totalBondsVal > 0 ? roundCurrency((value / totalBondsVal) * 100) : 0;
+    b.total_weight_pct = totalPortfolioValue > 0 ? roundCurrency((value / totalPortfolioValue) * 100) : 0;
   }
+  for (const account of epfoAccounts) {
+    account.weight_pct = totalPortfolioValue > 0 ? roundCurrency((account.total_balance / totalPortfolioValue) * 100) : 0;
+    account.total_weight_pct = account.weight_pct;
+  }
+
+  const priorSummary = meta.summary && typeof meta.summary === 'object' ? meta.summary : {};
+  const totalPositions = stocks.length + mutualFunds.length + bonds.length;
+  const latestEPFOStatement = epfoAccounts.reduce((latest, account) => account.statement_date || latest, '');
+  const summary = {
+    ...priorSummary,
+    total_portfolio_value: roundCurrency(totalPortfolioValue),
+    total_stocks_value: roundCurrency(totalStocksVal),
+    direct_stocks_value: roundCurrency(directStocksVal),
+    etfs_value: roundCurrency(etfsVal),
+    total_mf_value: roundCurrency(totalMfVal),
+    total_bonds_value: roundCurrency(totalBondsVal),
+    total_epfo_value: epfoValue,
+    epfo_employee_share: roundCurrency(epfoTotals.employee_share),
+    epfo_employer_share: roundCurrency(epfoTotals.employer_share),
+    epfo_pension_balance: roundCurrency(epfoTotals.pension_balance),
+    epfo_accounts_count: epfoAccounts.length,
+    epfo_statement_date: latestEPFOStatement,
+    stocks_count: stocks.length,
+    direct_stocks_count: directStocks.length,
+    etfs_count: etfs.length,
+    mf_count: mutualFunds.length,
+    bonds_count: bonds.length,
+    total_positions: totalPositions,
+    total_securities_count: totalPositions,
+    total_assets_count: totalPositions + epfoAccounts.length,
+    total_stocks_invested: roundCurrency(stocksCost),
+    total_mf_invested: roundCurrency(mfCost),
+    total_bonds_invested: roundCurrency(bondsCost),
+    total_invested: roundCurrency(totalInvested),
+    unrealized_gain: roundCurrency(totalGain),
+    unrealized_gain_pct: totalInvested > 0 ? roundCurrency((totalGain / totalInvested) * 100) : 0,
+    stocks_unrealized_gain: roundCurrency(stocksGain),
+    mf_unrealized_gain: roundCurrency(mfGain),
+    bonds_unrealized_gain: roundCurrency(bondsGain)
+  };
 
   return {
     holdings: stocks, // backward compatibility
@@ -509,19 +604,12 @@ export function getPortfolioHoldings() {
     etfs,
     mutual_funds: mutualFunds,
     bonds,
+    epfo_accounts: epfoAccounts,
     historical_valuations: meta.historical_valuations || [],
     asset_allocation: meta.asset_allocation || [],
     transactions: meta.transactions || [],
     analytics: meta.analytics || null,
-    summary: meta.summary || {
-      total_portfolio_value: rows.reduce((s, r) => s + (r.live_value || r.value || 0), 0),
-      stocks_count: stocks.length,
-      direct_stocks_count: directStocks.length,
-      etfs_count: etfs.length,
-      mf_count: mutualFunds.length,
-      bonds_count: bonds.length,
-      total_securities_count: rows.length
-    },
+    summary,
     meta
   };
 }

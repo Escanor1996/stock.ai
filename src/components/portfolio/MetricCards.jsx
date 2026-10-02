@@ -7,10 +7,12 @@ export default function MetricCards({
   etfsList = [],
   mutualFundsList = [],
   bondsList = [],
+  epfoAccounts = [],
   totalVal = 0,
   stocksVal = 0,
   mfVal = 0,
   bondsVal = 0,
+  epfoVal = 0,
   stockGainTotal = 0,
   stockGainPct = 0,
   statementPeriod = {}
@@ -76,7 +78,7 @@ export default function MetricCards({
       </div>
 
       {/* ── 4-COLUMN SUMMARY CARDS (Header Outside Body Pattern) ── */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+      <div className={`grid grid-cols-2 ${epfoVal > 0 ? 'md:grid-cols-3 lg:grid-cols-5' : 'md:grid-cols-4'} gap-4`}>
         {/* Card 1: Stocks & ETFs */}
         <div className="space-y-1.5">
           <div className="text-[11px] font-semibold text-muted-foreground tracking-wider uppercase px-0.5">
@@ -125,6 +127,23 @@ export default function MetricCards({
             </div>
           </div>
         </div>
+
+        {/* Card 4: EPFO Provident Fund */}
+        {epfoVal > 0 && (
+          <div className="space-y-1.5">
+            <div className="text-[11px] font-semibold text-muted-foreground tracking-wider uppercase px-0.5">
+              EPFO Provident Fund
+            </div>
+            <div className="glass-card p-4 space-y-1">
+              <div className="text-lg font-bold font-mono text-emerald-600">
+                ₹{epfoVal.toLocaleString('en-IN', { maximumFractionDigits: 0 })}
+              </div>
+              <div className="text-xs text-muted-foreground truncate">
+                {epfoAccounts.length} Account{epfoAccounts.length > 1 ? 's' : ''} • Sovereign Backed
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Card 4: Performance / Inflow */}
         <div className="space-y-1.5">

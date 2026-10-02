@@ -15,6 +15,7 @@ const systemPython = 'python3';
 const pythonBin = fs.existsSync(venvPython) ? venvPython : systemPython;
 const parserScript = path.join(__dirname, 'cas_parser.py');
 const brokerScript = path.join(__dirname, 'broker_parser.py');
+const epfoScript = path.join(__dirname, 'epfo_parser.py');
 
 /**
  * Parses a CAS PDF using the Python bridge.
@@ -114,6 +115,48 @@ export async function parseCASFile(filePath, password = '', enrichPrices = true)
         await fs.promises.unlink(filePath);
       } catch (cleanupErr) {
         console.warn('Failed to delete temporary CAS file:', cleanupErr.message);
+      }
+    }
+  }
+}
+
+/**
+ * Parses a downloaded official EPFO Member Passbook PDF.
+ * The parser never receives UAN, portal, or OTP credentials.
+ */
+export async function parseEPFOPassbook(filePath) {
+  try {
+    const res = await execFileAsync(pythonBin, [epfoScript, filePath], {
+      maxBuffer: 5 * 1024 * 1024,
+      timeout: 30000
+    });
+    const result = JSON.parse(res.stdout);
+    if (!result.success) {
+      const error = new Error(result.error || 'Failed to parse EPFO passbook');
+      error.errorType = result.error_type;
+      throw error;
+    }
+    return result;
+  } catch (err) {
+    if (err.stdout) {
+      try {
+        const result = JSON.parse(err.stdout);
+        if (!result.success) {
+          const error = new Error(result.error || 'Failed to parse EPFO passbook');
+          error.errorType = result.error_type;
+          throw error;
+        }
+      } catch (parseError) {
+        if (parseError.errorType) throw parseError;
+      }
+    }
+    throw err;
+  } finally {
+    if (filePath && fs.existsSync(filePath)) {
+      try {
+        await fs.promises.unlink(filePath);
+      } catch (cleanupErr) {
+        console.warn('Failed to delete temporary EPFO passbook:', cleanupErr.message);
       }
     }
   }
@@ -236,13 +279,221 @@ function applyBrokerToMf(item, b, brokerName) {
   if (b.source) item.broker_source = b.source;
 }
 
+function numericValue(value) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function roundCurrency(value) {
+  return Math.round(numericValue(value) * 100) / 100;
+}
+
+function holdingValue(item) {
+  return numericValue(item?.live_value ?? item?.value);
+}
+
+function holdingCost(item) {
+  if (item?.cost_basis !== undefined && item?.cost_basis !== null) {
+    return numericValue(item.cost_basis);
+  }
+  return numericValue(item?.price) * numericValue(item?.quantity);
+}
+
+function ensurePortfolioCollections(portfolio) {
+  if (!Array.isArray(portfolio.stocks)) {
+    portfolio.stocks = Array.isArray(portfolio.holdings) ? portfolio.holdings : [];
+  }
+  if (!Array.isArray(portfolio.mutual_funds)) portfolio.mutual_funds = [];
+  if (!Array.isArray(portfolio.bonds)) portfolio.bonds = [];
+  if (!Array.isArray(portfolio.epfo_accounts)) {
+    portfolio.epfo_accounts = Array.isArray(portfolio.meta?.epfo_accounts)
+      ? portfolio.meta.epfo_accounts
+      : [];
+  }
+  portfolio.holdings = portfolio.stocks;
+  return portfolio;
+}
+
+function summarizeEPFOAccounts(accounts) {
+  return accounts.reduce((totals, account) => {
+    totals.employee_share += numericValue(account.employee_share);
+    totals.employer_share += numericValue(account.employer_share);
+    totals.pension_balance += numericValue(account.pension_balance);
+    return totals;
+  }, {
+    employee_share: 0,
+    employer_share: 0,
+    pension_balance: 0
+  });
+}
+
+function refreshPortfolioSummary(portfolio, summaryPatch = {}) {
+  ensurePortfolioCollections(portfolio);
+
+  const stocks = portfolio.stocks;
+  const mutualFunds = portfolio.mutual_funds;
+  const bonds = portfolio.bonds;
+  const epfoAccounts = portfolio.epfo_accounts;
+  const directStocks = stocks.filter(stock => stock.subtype !== 'ETF');
+  const etfs = stocks.filter(stock => stock.subtype === 'ETF');
+
+  const stocksLiveVal = stocks.reduce((sum, item) => sum + holdingValue(item), 0);
+  const stocksCostTotal = stocks.reduce((sum, item) => sum + holdingCost(item), 0);
+  const stocksGain = stocks.reduce((sum, item) => sum + numericValue(item.gain), 0);
+  const directStocksVal = directStocks.reduce((sum, item) => sum + holdingValue(item), 0);
+  const etfsVal = etfs.reduce((sum, item) => sum + holdingValue(item), 0);
+
+  const mfLiveVal = mutualFunds.reduce((sum, item) => sum + holdingValue(item), 0);
+  const mfCostTotal = mutualFunds.reduce((sum, item) => sum + holdingCost(item), 0);
+  const mfGain = mutualFunds.reduce((sum, item) => sum + numericValue(item.gain), 0);
+
+  const bondsLiveVal = bonds.reduce((sum, item) => sum + holdingValue(item), 0);
+  const bondsCostTotal = bonds.reduce((sum, item) => sum + holdingCost(item), 0);
+  const bondsGain = bonds.reduce((sum, item) => sum + numericValue(item.gain), 0);
+
+  const epfoBalances = summarizeEPFOAccounts(epfoAccounts);
+  for (const account of epfoAccounts) {
+    if (!account.total_balance || account.total_balance <= 0) {
+      account.total_balance = roundCurrency(
+        numericValue(account.employee_share) + numericValue(account.employer_share)
+      );
+    } else {
+      account.total_balance = roundCurrency(account.total_balance);
+    }
+  }
+  const epfoTotal = epfoAccounts.reduce((sum, a) => sum + numericValue(a.total_balance), 0);
+  const totalPortfolioVal = stocksLiveVal + mfLiveVal + bondsLiveVal + epfoTotal;
+  const totalInvested = stocksCostTotal + mfCostTotal + bondsCostTotal;
+  const totalGain = stocksGain + mfGain + bondsGain;
+  const totalPositions = stocks.length + mutualFunds.length + bonds.length;
+
+  const applyWeights = (items, assetTotal) => {
+    for (const item of items) {
+      const value = holdingValue(item);
+      item.weight_pct = assetTotal > 0 ? roundCurrency((value / assetTotal) * 100) : 0;
+      item.total_weight_pct = totalPortfolioVal > 0 ? roundCurrency((value / totalPortfolioVal) * 100) : 0;
+    }
+  };
+  applyWeights(stocks, stocksLiveVal);
+  applyWeights(mutualFunds, mfLiveVal);
+  applyWeights(bonds, bondsLiveVal);
+
+  portfolio.direct_stocks = directStocks;
+  portfolio.etfs = etfs;
+  portfolio.asset_allocation = [
+    { asset_class: 'Direct Stocks & ETFs', value: roundCurrency(stocksLiveVal), percentage: totalPortfolioVal > 0 ? roundCurrency((stocksLiveVal / totalPortfolioVal) * 100) : 0 },
+    { asset_class: 'Mutual Fund Folios', value: roundCurrency(mfLiveVal), percentage: totalPortfolioVal > 0 ? roundCurrency((mfLiveVal / totalPortfolioVal) * 100) : 0 },
+    { asset_class: 'Bonds & SGB Gold', value: roundCurrency(bondsLiveVal), percentage: totalPortfolioVal > 0 ? roundCurrency((bondsLiveVal / totalPortfolioVal) * 100) : 0 },
+    ...(epfoAccounts.length > 0 ? [{
+      asset_class: 'EPFO Provident Fund',
+      value: roundCurrency(epfoTotal),
+      percentage: totalPortfolioVal > 0 ? roundCurrency((epfoTotal / totalPortfolioVal) * 100) : 0
+    }] : [])
+  ];
+
+  const latestEPFOStatement = epfoAccounts.reduce((latest, account) => account.statement_date || latest, '');
+  portfolio.summary = {
+    ...(portfolio.summary || {}),
+    total_portfolio_value: roundCurrency(totalPortfolioVal),
+    total_stocks_value: roundCurrency(stocksLiveVal),
+    direct_stocks_value: roundCurrency(directStocksVal),
+    etfs_value: roundCurrency(etfsVal),
+    total_mf_value: roundCurrency(mfLiveVal),
+    total_bonds_value: roundCurrency(bondsLiveVal),
+    total_epfo_value: roundCurrency(epfoTotal),
+    epfo_employee_share: roundCurrency(epfoBalances.employee_share),
+    epfo_employer_share: roundCurrency(epfoBalances.employer_share),
+    epfo_pension_balance: roundCurrency(epfoBalances.pension_balance),
+    epfo_accounts_count: epfoAccounts.length,
+    epfo_statement_date: latestEPFOStatement,
+    stocks_count: stocks.length,
+    direct_stocks_count: directStocks.length,
+    etfs_count: etfs.length,
+    mf_count: mutualFunds.length,
+    bonds_count: bonds.length,
+    total_positions: totalPositions,
+    total_securities_count: totalPositions,
+    total_assets_count: totalPositions + epfoAccounts.length,
+    unrealized_gain: roundCurrency(totalGain),
+    unrealized_gain_pct: totalInvested > 0 ? roundCurrency((totalGain / totalInvested) * 100) : 0,
+    stocks_unrealized_gain: roundCurrency(stocksGain),
+    mf_unrealized_gain: roundCurrency(mfGain),
+    bonds_unrealized_gain: roundCurrency(bondsGain),
+    total_stocks_invested: roundCurrency(stocksCostTotal),
+    total_mf_invested: roundCurrency(mfCostTotal),
+    total_bonds_invested: roundCurrency(bondsCostTotal),
+    total_invested: roundCurrency(totalInvested),
+    ...summaryPatch
+  };
+  return portfolio;
+}
+
+export function mergeEPFOAccounts(portfolio = {}, epfoData = {}) {
+  const nextPortfolio = {
+    ...portfolio,
+    stocks: [...(portfolio.stocks || portfolio.holdings || [])],
+    mutual_funds: [...(portfolio.mutual_funds || [])],
+    bonds: [...(portfolio.bonds || [])],
+    epfo_accounts: [...(portfolio.epfo_accounts || portfolio.meta?.epfo_accounts || [])],
+    summary: { ...(portfolio.summary || {}) },
+    meta: { ...(portfolio.meta || {}) }
+  };
+  nextPortfolio.holdings = nextPortfolio.stocks;
+
+  const accountsByMemberId = new Map(
+    nextPortfolio.epfo_accounts
+      .filter(account => account?.member_id)
+      .map(account => [String(account.member_id).toUpperCase(), account])
+  );
+
+  const incomingAccounts = Array.isArray(epfoData.accounts) ? epfoData.accounts : [];
+  for (const rawAccount of incomingAccounts) {
+    const memberId = String(rawAccount.member_id || '').trim().toUpperCase();
+    if (!memberId) continue;
+
+    const previous = accountsByMemberId.get(memberId) || {};
+    const employeeShare = roundCurrency(rawAccount.employee_share);
+    const employerShare = roundCurrency(rawAccount.employer_share);
+    const pensionBalance = roundCurrency(rawAccount.pension_balance);
+    const totalBalance = rawAccount.total_balance !== undefined && rawAccount.total_balance !== null && Number(rawAccount.total_balance) > 0
+      ? roundCurrency(rawAccount.total_balance)
+      : roundCurrency(employeeShare + employerShare);
+
+    accountsByMemberId.set(memberId, {
+      ...previous,
+      member_id: memberId,
+      establishment_name: rawAccount.establishment_name || previous.establishment_name || 'EPFO Member Account',
+      employee_share: employeeShare,
+      employer_share: employerShare,
+      pension_balance: pensionBalance,
+      total_balance: totalBalance,
+      statement_date: rawAccount.statement_date || previous.statement_date || '',
+      source: rawAccount.source || 'EPFO Member Passbook',
+      balance_source: rawAccount.balance_source || previous.balance_source || '',
+      uan: rawAccount.uan || previous.uan || '',
+      member_name: rawAccount.member_name || previous.member_name || '',
+      transactions: Array.isArray(rawAccount.transactions) && rawAccount.transactions.length > 0
+        ? rawAccount.transactions
+        : (previous.transactions || []),
+      imported_at: Date.now()
+    });
+  }
+
+  if (accountsByMemberId.size === 0) {
+    throw new Error('The EPFO passbook did not contain a valid Member ID and balance.');
+  }
+
+  nextPortfolio.epfo_accounts = [...accountsByMemberId.values()];
+  nextPortfolio.meta.epfo_accounts = nextPortfolio.epfo_accounts;
+  refreshPortfolioSummary(nextPortfolio);
+  nextPortfolio.analytics = computePortfolioAnalytics(nextPortfolio);
+  return nextPortfolio;
+}
+
 export function mergeBrokerPrices(portfolio, brokerData) {
   if (!portfolio || (!brokerData?.holdings && !brokerData?.mutual_funds)) return portfolio;
 
-  // Initialize arrays if missing
-  if (!portfolio.stocks) portfolio.stocks = portfolio.holdings || [];
-  if (!portfolio.mutual_funds) portfolio.mutual_funds = [];
-  if (!portfolio.bonds) portfolio.bonds = [];
+  ensurePortfolioCollections(portfolio);
 
   let matchedCount = 0;
 
@@ -532,85 +783,14 @@ export function mergeBrokerPrices(portfolio, brokerData) {
     portfolio.mutual_funds = mfList;
   }
 
-  // 4. Recalculate summary metrics across stocks, mutual funds, and bonds
-  const stocksCostTotal = (portfolio.stocks || []).reduce((sum, h) => sum + (h.cost_basis || ((h.price || 0) * (h.quantity || 0))), 0);
-  const stocksLiveVal = (portfolio.stocks || []).reduce((sum, h) => sum + (h.live_value || h.value || 0), 0);
-  const stocksGain = (portfolio.stocks || []).reduce((sum, h) => sum + (h.gain || 0), 0);
-
-  const mfCostTotal = (portfolio.mutual_funds || []).reduce((sum, m) => sum + (m.cost_basis || 0), 0);
-  const mfLiveVal = (portfolio.mutual_funds || []).reduce((sum, m) => sum + (m.value || 0), 0);
-  const mfGain = (portfolio.mutual_funds || []).reduce((sum, m) => sum + (m.gain || 0), 0);
-
-  const bondsCostTotal = (portfolio.bonds || []).reduce((sum, b) => sum + (b.cost_basis || ((b.price || 0) * (b.quantity || 0))), 0);
-  const bondsLiveVal = (portfolio.bonds || []).reduce((sum, b) => sum + (b.live_value || b.value || 0), 0);
-  const bondsGain = (portfolio.bonds || []).reduce((sum, b) => sum + (b.gain || 0), 0);
-
-  const totalPortfolioVal = stocksLiveVal + mfLiveVal + bondsLiveVal;
-  const totalInvested = stocksCostTotal + mfCostTotal + bondsCostTotal;
-  const totalGain = Math.round((stocksGain + mfGain + bondsGain) * 100) / 100;
-  const totalGainPct = totalInvested > 0 ? Math.round((totalGain / totalInvested) * 10000) / 100 : 0;
-
-  // Recalculate weights
-  if (stocksLiveVal > 0) {
-    (portfolio.stocks || []).forEach(h => {
-      const val = h.live_value || h.value || 0;
-      h.weight_pct = Math.round((val / stocksLiveVal) * 10000) / 100;
-      if (totalPortfolioVal > 0) {
-        h.total_weight_pct = Math.round((val / totalPortfolioVal) * 10000) / 100;
-      }
-    });
-  }
-  if (mfLiveVal > 0) {
-    (portfolio.mutual_funds || []).forEach(m => {
-      const val = m.value || 0;
-      m.weight_pct = Math.round((val / mfLiveVal) * 10000) / 100;
-      if (totalPortfolioVal > 0) {
-        m.total_weight_pct = Math.round((val / totalPortfolioVal) * 10000) / 100;
-      }
-    });
-  }
-  if (bondsLiveVal > 0) {
-    (portfolio.bonds || []).forEach(b => {
-      const val = b.live_value || b.value || 0;
-      b.weight_pct = Math.round((val / bondsLiveVal) * 10000) / 100;
-      if (totalPortfolioVal > 0) {
-        b.total_weight_pct = Math.round((val / totalPortfolioVal) * 10000) / 100;
-      }
-    });
-  }
-
-  // Update asset allocation breakdown
-  portfolio.asset_allocation = [
-    { asset_class: 'Direct Stocks & ETFs', value: Math.round(stocksLiveVal * 100) / 100, percentage: totalPortfolioVal > 0 ? Math.round((stocksLiveVal / totalPortfolioVal) * 10000) / 100 : 0 },
-    { asset_class: 'Mutual Fund Folios', value: Math.round(mfLiveVal * 100) / 100, percentage: totalPortfolioVal > 0 ? Math.round((mfLiveVal / totalPortfolioVal) * 10000) / 100 : 0 },
-    { asset_class: 'Bonds & SGB Gold', value: Math.round(bondsLiveVal * 100) / 100, percentage: totalPortfolioVal > 0 ? Math.round((bondsLiveVal / totalPortfolioVal) * 10000) / 100 : 0 }
-  ];
-
-  const totalPositionsCount = (portfolio.stocks || []).length + (portfolio.mutual_funds || []).length + (portfolio.bonds || []).length;
   const mfXirr = brokerData.portfolio_xirr ?? brokerData.summary?.xirr ?? portfolio.summary?.mf_xirr ?? null;
-
-  portfolio.summary = {
-    ...portfolio.summary,
-    total_portfolio_value: Math.round(totalPortfolioVal * 100) / 100,
-    total_stocks_value: Math.round(stocksLiveVal * 100) / 100,
-    total_mf_value: Math.round(mfLiveVal * 100) / 100,
-    total_bonds_value: Math.round(bondsLiveVal * 100) / 100,
-    total_positions: totalPositionsCount,
-    unrealized_gain: totalGain,
-    unrealized_gain_pct: totalGainPct,
-    stocks_unrealized_gain: Math.round(stocksGain * 100) / 100,
-    mf_unrealized_gain: Math.round(mfGain * 100) / 100,
-    bonds_unrealized_gain: Math.round(bondsGain * 100) / 100,
-    total_stocks_invested: Math.round(stocksCostTotal * 100) / 100,
-    total_mf_invested: Math.round(mfCostTotal * 100) / 100,
-    total_bonds_invested: Math.round(bondsCostTotal * 100) / 100,
-    total_invested: Math.round(totalInvested * 100) / 100,
+  refreshPortfolioSummary(portfolio, {
     broker_source: brokerData.broker || portfolio.summary?.broker_source,
     broker_client_code: brokerData.client_code || portfolio.summary?.broker_client_code,
     broker_enriched_count: (portfolio.summary?.broker_enriched_count || 0) + matchedCount + mfMatchedCount,
     broker_mf_count: mfMatchedCount || portfolio.summary?.broker_mf_count || 0,
     mf_xirr: mfXirr
-  };
+  });
 
   // Enrich stocks with AI/Algo scores if missing
   const aiScoresMap = db.getAllAIScores ? db.getAllAIScores() : {};
@@ -634,6 +814,7 @@ export function mergeBrokerPrices(portfolio, brokerData) {
       }
     }
   }
+  portfolio.analytics = computePortfolioAnalytics(portfolio);
   return portfolio;
 }
 
@@ -690,12 +871,14 @@ export function computePortfolioAnalytics(portfolio) {
   const etfsVal = summary.etfs_value || 0;
   const mfVal = summary.total_mf_value || 0;
   const bondsVal = summary.total_bonds_value || 0;
+  const epfoVal = summary.total_epfo_value || 0;
 
   const allocation = [
     { name: 'Mutual Funds', value: Math.round(mfVal * 100) / 100, pct: Math.round((mfVal / totalVal) * 10000) / 100, color: '#10b981' },
     { name: 'Direct Stocks', value: Math.round(directStocksVal * 100) / 100, pct: Math.round((directStocksVal / totalVal) * 10000) / 100, color: '#06b6d4' },
     { name: 'ETFs', value: Math.round(etfsVal * 100) / 100, pct: Math.round((etfsVal / totalVal) * 10000) / 100, color: '#8b5cf6' },
-    { name: 'Bonds & SGBs', value: Math.round(bondsVal * 100) / 100, pct: Math.round((bondsVal / totalVal) * 10000) / 100, color: '#f59e0b' }
+    { name: 'Bonds & SGBs', value: Math.round(bondsVal * 100) / 100, pct: Math.round((bondsVal / totalVal) * 10000) / 100, color: '#f59e0b' },
+    { name: 'EPF', value: Math.round(epfoVal * 100) / 100, pct: Math.round((epfoVal / totalVal) * 10000) / 100, color: '#4d6d13', has_return: false }
   ].filter(a => a.value > 0);
 
   const txns = portfolio.transactions || [];
@@ -723,7 +906,7 @@ export function computePortfolioAnalytics(portfolio) {
     net_flow: Math.round((totalInflows - totalOutflows) * 100) / 100
   };
 
-  return { performance, allocation, transaction_summary };
+  return { performance, allocation, asset_allocation: allocation, transaction_summary };
 }
 
 /**
@@ -1147,6 +1330,7 @@ export function exportToCSV(payload = {}, summaryOverride = null) {
   let stocks = [];
   let mutualFunds = [];
   let bonds = [];
+  let epfoAccounts = [];
   let summary = {};
 
   if (Array.isArray(payload)) {
@@ -1156,6 +1340,7 @@ export function exportToCSV(payload = {}, summaryOverride = null) {
     stocks = payload.stocks || payload.holdings || [];
     mutualFunds = payload.mutual_funds || [];
     bonds = payload.bonds || [];
+    epfoAccounts = payload.epfo_accounts || [];
     summary = payload.summary || summaryOverride || {};
   }
 
@@ -1267,6 +1452,35 @@ export function exportToCSV(payload = {}, summaryOverride = null) {
     }
   }
 
+  // 4. EPFO Provident Fund Section
+  if (epfoAccounts.length > 0) {
+    csvLines.push('');
+    csvLines.push('"=== EPFO PROVIDENT FUND ===",,,,,,,');
+    csvLines.push([
+      'Member ID',
+      'Establishment',
+      'Employee Share (INR)',
+      'Employer Share (INR)',
+      'Pension Balance (INR)',
+      'Total Balance (INR)',
+      'Statement Date',
+      'Source'
+    ].join(','));
+
+    for (const account of epfoAccounts) {
+      csvLines.push([
+        `"${String(account.member_id || '').replace(/"/g, '""')}"`,
+        `"${String(account.establishment_name || '').replace(/"/g, '""')}"`,
+        account.employee_share ?? 0,
+        account.employer_share ?? 0,
+        account.pension_balance ?? 0,
+        account.total_balance ?? 0,
+        `"${String(account.statement_date || '').replace(/"/g, '""')}"`,
+        `"${String(account.source || 'EPFO Member Passbook').replace(/"/g, '""')}"`
+      ].join(','));
+    }
+  }
+
   // 4. Summary Section
   if (summary && summary.total_portfolio_value) {
     csvLines.push('');
@@ -1276,6 +1490,8 @@ export function exportToCSV(payload = {}, summaryOverride = null) {
     csvLines.push(`"ETFs Value (INR)",${summary.etfs_value || 0},,,,,,,,,,,`);
     csvLines.push(`"Mutual Funds Value (INR)",${summary.total_mf_value || 0},,,,,,,,,,,`);
     csvLines.push(`"Bonds & SGB Value (INR)",${summary.total_bonds_value || 0},,,,,,,,,,,`);
+    csvLines.push(`"EPFO Provident Fund Value (INR)",${summary.total_epfo_value || 0},,,,,,,,,,,`);
+    csvLines.push(`"EPFO Member Accounts",${summary.epfo_accounts_count || epfoAccounts.length},,,,,,,,,,,`);
     csvLines.push(`"Total Securities Count",${summary.total_securities_count || (stocks.length + mutualFunds.length + bonds.length)},,,,,,,,,,,`);
     if (summary.unrealized_gain !== undefined) {
       csvLines.push(`"Total Unrealized P&L (INR)",${summary.unrealized_gain || 0},,,,,,,,,,,`);
