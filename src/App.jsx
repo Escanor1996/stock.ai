@@ -355,6 +355,9 @@ export default function App() {
             onUploadEPFO={portfolio.handleUploadEPFOPassbook}
             isEPFOUploading={portfolio.isEPFOUploading}
             onDeleteEPFO={portfolio.handleDeleteEPFOAccount}
+            onUploadBank={portfolio.handleUploadBankStatement}
+            isBankUploading={portfolio.isBankUploading}
+            onDeleteBankAccount={portfolio.handleDeleteBankAccount}
             onExportCSV={portfolio.handleExportCSV}
             onExportJSON={portfolio.handleExportJSON}
             onSave={portfolio.handleSaveToDatabase}

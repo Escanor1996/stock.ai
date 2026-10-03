@@ -315,6 +315,51 @@ export async function deleteEPFOAccount(memberId) {
   return result;
 }
 
+export async function uploadBankStatement(files, password = '', bankType = 'auto', currentPortfolio = null) {
+  const fileList = Array.isArray(files)
+    ? files
+    : (files instanceof FileList ? Array.from(files) : [files]);
+  const formData = new FormData();
+  for (const file of fileList) {
+    formData.append('files', file);
+  }
+  if (fileList.length > 0) {
+    formData.append('file', fileList[0]);
+  }
+  if (password) {
+    formData.append('password', password);
+  }
+  if (bankType) {
+    formData.append('bank_type', bankType);
+  }
+  if (currentPortfolio) {
+    formData.append('portfolio', JSON.stringify(currentPortfolio));
+  }
+
+  const response = await fetch('/api/portfolio/bank-statement', {
+    method: 'POST',
+    body: formData,
+  });
+  const result = await response.json();
+  if (!response.ok || !result.success) {
+    const err = new Error(result.error || 'Failed to process bank statement');
+    err.errorType = result.error_type;
+    throw err;
+  }
+  return result;
+}
+
+export async function deleteBankAccount(accountNumber) {
+  const response = await fetch(`/api/portfolio/bank-account/${encodeURIComponent(accountNumber)}`, {
+    method: 'DELETE',
+  });
+  const result = await response.json();
+  if (!response.ok || !result.success) {
+    throw new Error(result.error || 'Failed to delete bank account');
+  }
+  return result;
+}
+
 export async function fetchSamplePortfolio() {
   const response = await fetch('/api/portfolio/sample');
   if (!response.ok) throw new Error('Failed to load sample portfolio');

@@ -16,7 +16,7 @@ const pythonBin = fs.existsSync(venvPython) ? venvPython : systemPython;
 const parserScript = path.join(__dirname, 'cas_parser.py');
 const brokerScript = path.join(__dirname, 'broker_parser.py');
 const epfoScript = path.join(__dirname, 'epfo_parser.py');
-
+const bankScript = path.join(__dirname, 'bank_parser.py');
 /**
  * Parses a CAS PDF using the Python bridge.
  * @param {string} filePath - Absolute path to uploaded PDF
@@ -157,6 +157,51 @@ export async function parseEPFOPassbook(filePath) {
         await fs.promises.unlink(filePath);
       } catch (cleanupErr) {
         console.warn('Failed to delete temporary EPFO passbook:', cleanupErr.message);
+      }
+    }
+  }
+}
+
+/**
+ * Parses a bank statement PDF (HDFC, Standard Chartered, Generic).
+ * @param {string} filePath - Absolute path to uploaded PDF
+ * @param {string} password - PDF password if encrypted
+ * @param {string} bankType - Bank hint ('hdfc', 'scb', 'auto')
+ * @returns {Promise<Object>}
+ */
+export async function parseBankStatement(filePath, password = '', bankType = 'auto') {
+  try {
+    const res = await execFileAsync(pythonBin, [bankScript, filePath, password || '', bankType || 'auto'], {
+      maxBuffer: 10 * 1024 * 1024,
+      timeout: 45000
+    });
+    const result = JSON.parse(res.stdout);
+    if (!result.success) {
+      const error = new Error(result.error || 'Failed to parse bank statement');
+      error.errorType = result.error_type;
+      throw error;
+    }
+    return result;
+  } catch (err) {
+    if (err.stdout) {
+      try {
+        const result = JSON.parse(err.stdout);
+        if (!result.success) {
+          const error = new Error(result.error || 'Failed to parse bank statement');
+          error.errorType = result.error_type;
+          throw error;
+        }
+      } catch (parseError) {
+        if (parseError.errorType) throw parseError;
+      }
+    }
+    throw err;
+  } finally {
+    if (filePath && fs.existsSync(filePath)) {
+      try {
+        await fs.promises.unlink(filePath);
+      } catch (cleanupErr) {
+        console.warn('Failed to delete temporary bank statement:', cleanupErr.message);
       }
     }
   }
@@ -310,6 +355,11 @@ function ensurePortfolioCollections(portfolio) {
       ? portfolio.meta.epfo_accounts
       : [];
   }
+  if (!Array.isArray(portfolio.bank_accounts)) {
+    portfolio.bank_accounts = Array.isArray(portfolio.meta?.bank_accounts)
+      ? portfolio.meta.bank_accounts
+      : [];
+  }
   portfolio.holdings = portfolio.stocks;
   return portfolio;
 }
@@ -327,7 +377,7 @@ function summarizeEPFOAccounts(accounts) {
   });
 }
 
-function refreshPortfolioSummary(portfolio, summaryPatch = {}) {
+export function refreshPortfolioSummary(portfolio, summaryPatch = {}) {
   ensurePortfolioCollections(portfolio);
 
   const stocks = portfolio.stocks;
@@ -351,6 +401,11 @@ function refreshPortfolioSummary(portfolio, summaryPatch = {}) {
   const bondsCostTotal = bonds.reduce((sum, item) => sum + holdingCost(item), 0);
   const bondsGain = bonds.reduce((sum, item) => sum + numericValue(item.gain), 0);
 
+  const bankAccounts = portfolio.bank_accounts || [];
+  const totalBankValue = bankAccounts.reduce((sum, a) => sum + numericValue(a.closing_balance), 0);
+  const totalBankInflows = bankAccounts.reduce((sum, a) => sum + numericValue(a.total_credits), 0);
+  const totalBankOutflows = bankAccounts.reduce((sum, a) => sum + numericValue(a.total_debits), 0);
+
   const epfoBalances = summarizeEPFOAccounts(epfoAccounts);
   for (const account of epfoAccounts) {
     if (!account.total_balance || account.total_balance <= 0) {
@@ -362,7 +417,7 @@ function refreshPortfolioSummary(portfolio, summaryPatch = {}) {
     }
   }
   const epfoTotal = epfoAccounts.reduce((sum, a) => sum + numericValue(a.total_balance), 0);
-  const totalPortfolioVal = stocksLiveVal + mfLiveVal + bondsLiveVal + epfoTotal;
+  const totalPortfolioVal = stocksLiveVal + mfLiveVal + bondsLiveVal + epfoTotal + totalBankValue;
   const totalInvested = stocksCostTotal + mfCostTotal + bondsCostTotal;
   const totalGain = stocksGain + mfGain + bondsGain;
   const totalPositions = stocks.length + mutualFunds.length + bonds.length;
@@ -388,6 +443,11 @@ function refreshPortfolioSummary(portfolio, summaryPatch = {}) {
       asset_class: 'EPFO Provident Fund',
       value: roundCurrency(epfoTotal),
       percentage: totalPortfolioVal > 0 ? roundCurrency((epfoTotal / totalPortfolioVal) * 100) : 0
+    }] : []),
+    ...(bankAccounts.length > 0 ? [{
+      asset_class: 'Cash & Bank Accounts',
+      value: roundCurrency(totalBankValue),
+      percentage: totalPortfolioVal > 0 ? roundCurrency((totalBankValue / totalPortfolioVal) * 100) : 0
     }] : [])
   ];
 
@@ -401,6 +461,10 @@ function refreshPortfolioSummary(portfolio, summaryPatch = {}) {
     total_mf_value: roundCurrency(mfLiveVal),
     total_bonds_value: roundCurrency(bondsLiveVal),
     total_epfo_value: roundCurrency(epfoTotal),
+    total_bank_value: roundCurrency(totalBankValue),
+    total_bank_inflows: roundCurrency(totalBankInflows),
+    total_bank_outflows: roundCurrency(totalBankOutflows),
+    bank_accounts_count: bankAccounts.length,
     epfo_employee_share: roundCurrency(epfoBalances.employee_share),
     epfo_employer_share: roundCurrency(epfoBalances.employer_share),
     epfo_pension_balance: roundCurrency(epfoBalances.pension_balance),
@@ -413,7 +477,7 @@ function refreshPortfolioSummary(portfolio, summaryPatch = {}) {
     bonds_count: bonds.length,
     total_positions: totalPositions,
     total_securities_count: totalPositions,
-    total_assets_count: totalPositions + epfoAccounts.length,
+    total_assets_count: totalPositions + epfoAccounts.length + bankAccounts.length,
     unrealized_gain: roundCurrency(totalGain),
     unrealized_gain_pct: totalInvested > 0 ? roundCurrency((totalGain / totalInvested) * 100) : 0,
     stocks_unrealized_gain: roundCurrency(stocksGain),
@@ -487,6 +551,85 @@ export function mergeEPFOAccounts(portfolio = {}, epfoData = {}) {
   nextPortfolio.meta.epfo_accounts = nextPortfolio.epfo_accounts;
   refreshPortfolioSummary(nextPortfolio);
   nextPortfolio.analytics = computePortfolioAnalytics(nextPortfolio);
+  return nextPortfolio;
+}
+
+function maskAccountNumber(acc) {
+  if (!acc) return '••••••••';
+  const clean = String(acc).replace(/\s+/g, '');
+  if (clean.length <= 4) return `••••${clean}`;
+  return `••••${clean.slice(-4)}`;
+}
+
+export function mergeBankAccounts(portfolio = {}, bankData = {}) {
+  const nextPortfolio = {
+    ...portfolio,
+    stocks: [...(portfolio.stocks || portfolio.holdings || [])],
+    mutual_funds: [...(portfolio.mutual_funds || [])],
+    bonds: [...(portfolio.bonds || [])],
+    epfo_accounts: [...(portfolio.epfo_accounts || portfolio.meta?.epfo_accounts || [])],
+    bank_accounts: [...(portfolio.bank_accounts || portfolio.meta?.bank_accounts || [])],
+    summary: { ...(portfolio.summary || {}) },
+    meta: { ...(portfolio.meta || {}) }
+  };
+  nextPortfolio.holdings = nextPortfolio.stocks;
+
+  const accountsByKey = new Map(
+    nextPortfolio.bank_accounts
+      .filter(account => account?.account_number || account?.masked_account_number)
+      .map(account => [String(account.account_number || account.masked_account_number).toUpperCase().replace(/\s+/g, ''), account])
+  );
+
+  const incomingAccounts = Array.isArray(bankData.accounts) ? bankData.accounts : [];
+  for (const rawAccount of incomingAccounts) {
+    const key = String(rawAccount.account_number || rawAccount.masked_account_number || '').toUpperCase().replace(/\s+/g, '');
+    if (!key) continue;
+
+    const previous = accountsByKey.get(key) || {};
+    const closingBalance = roundCurrency(rawAccount.closing_balance ?? previous.closing_balance ?? 0);
+    const openingBalance = roundCurrency(rawAccount.opening_balance ?? previous.opening_balance ?? 0);
+    const totalCredits = roundCurrency(rawAccount.total_credits ?? previous.total_credits ?? 0);
+    const totalDebits = roundCurrency(rawAccount.total_debits ?? previous.total_debits ?? 0);
+    const netCashflow = roundCurrency(rawAccount.net_cashflow ?? (totalCredits - totalDebits));
+
+    accountsByKey.set(key, {
+      ...previous,
+      account_number: rawAccount.account_number || previous.account_number || key,
+      masked_account_number: rawAccount.masked_account_number || previous.masked_account_number || maskAccountNumber(key),
+      account_holder: rawAccount.account_holder || previous.account_holder || 'Bank Customer',
+      bank_name: rawAccount.bank_name || previous.bank_name || 'Bank Account',
+      bank_code: rawAccount.bank_code || previous.bank_code || 'BANK',
+      account_type: rawAccount.account_type || previous.account_type || 'Savings Account',
+      branch: rawAccount.branch || previous.branch || '',
+      ifsc: rawAccount.ifsc || previous.ifsc || '',
+      currency: rawAccount.currency || previous.currency || 'INR',
+      opening_balance: openingBalance,
+      closing_balance: closingBalance,
+      total_credits: totalCredits,
+      total_debits: totalDebits,
+      net_cashflow: netCashflow,
+      statement_date: rawAccount.statement_date || previous.statement_date || '',
+      statement_period: rawAccount.statement_period || previous.statement_period || { from: '', to: '' },
+      monthly_cashflow: Array.isArray(rawAccount.monthly_cashflow) && rawAccount.monthly_cashflow.length > 0
+        ? rawAccount.monthly_cashflow
+        : (previous.monthly_cashflow || []),
+      transactions: Array.isArray(rawAccount.transactions) && rawAccount.transactions.length > 0
+        ? rawAccount.transactions
+        : (previous.transactions || []),
+      imported_at: Date.now()
+    });
+  }
+
+  if (accountsByKey.size === 0) {
+    throw new Error('The bank statement did not contain any valid account information or balance.');
+  }
+
+  nextPortfolio.bank_accounts = Array.from(accountsByKey.values());
+  nextPortfolio.meta.bank_accounts = nextPortfolio.bank_accounts;
+
+  refreshPortfolioSummary(nextPortfolio);
+  nextPortfolio.analytics = computePortfolioAnalytics(nextPortfolio);
+
   return nextPortfolio;
 }
 
@@ -872,13 +1015,21 @@ export function computePortfolioAnalytics(portfolio) {
   const mfVal = summary.total_mf_value || 0;
   const bondsVal = summary.total_bonds_value || 0;
   const epfoVal = summary.total_epfo_value || 0;
+  const bankVal = summary.total_bank_value || (portfolio.bank_accounts || []).reduce((sum, a) => sum + numericValue(a.closing_balance), 0);
 
   const allocation = [
     { name: 'Mutual Funds', value: Math.round(mfVal * 100) / 100, pct: Math.round((mfVal / totalVal) * 10000) / 100, color: '#10b981' },
     { name: 'Direct Stocks', value: Math.round(directStocksVal * 100) / 100, pct: Math.round((directStocksVal / totalVal) * 10000) / 100, color: '#06b6d4' },
     { name: 'ETFs', value: Math.round(etfsVal * 100) / 100, pct: Math.round((etfsVal / totalVal) * 10000) / 100, color: '#8b5cf6' },
     { name: 'Bonds & SGBs', value: Math.round(bondsVal * 100) / 100, pct: Math.round((bondsVal / totalVal) * 10000) / 100, color: '#f59e0b' },
-    { name: 'EPF', value: Math.round(epfoVal * 100) / 100, pct: Math.round((epfoVal / totalVal) * 10000) / 100, color: '#4d6d13', has_return: false }
+    { name: 'EPF', value: Math.round(epfoVal * 100) / 100, pct: Math.round((epfoVal / totalVal) * 10000) / 100, color: '#4d6d13', has_return: false },
+    ...(bankVal > 0 ? [{
+      name: 'Cash & Bank',
+      value: Math.round(bankVal * 100) / 100,
+      pct: Math.round((bankVal / totalVal) * 10000) / 100,
+      color: '#0891b2',
+      has_return: false
+    }] : [])
   ].filter(a => a.value > 0);
 
   const txns = portfolio.transactions || [];

@@ -4,6 +4,8 @@ import {
   uploadBrokerStatement,
   uploadEPFOPassbook,
   deleteEPFOAccount,
+  uploadBankStatement,
+  deleteBankAccount,
   fetchSamplePortfolio,
   savePortfolio,
   fetchSavedPortfolio,
@@ -19,6 +21,7 @@ let globalError = null;
 let globalBrokerNotice = null;
 let globalIsBrokerUploading = false;
 let globalIsEPFOUploading = false;
+let globalIsBankUploading = false;
 let globalSaveStatus = null;
 let isInitialized = false;
 
@@ -74,14 +77,15 @@ export function usePortfolio() {
     if (cached) {
       try {
         const parsed = JSON.parse(cached);
-        if (parsed && (parsed.stocks?.length > 0 || parsed.holdings?.length > 0 || parsed.mutual_funds?.length > 0 || parsed.epfo_accounts?.length > 0)) {
+        if (parsed && (parsed.stocks?.length > 0 || parsed.holdings?.length > 0 || parsed.mutual_funds?.length > 0 || parsed.epfo_accounts?.length > 0 || parsed.bank_accounts?.length > 0)) {
           const norm = (arr) => Array.isArray(arr) ? arr.map(normalizeHolding) : arr;
           globalPortfolio = {
             ...parsed,
             stocks: norm(parsed.stocks),
             holdings: norm(parsed.holdings),
             direct_stocks: norm(parsed.direct_stocks),
-            etfs: norm(parsed.etfs)
+            etfs: norm(parsed.etfs),
+            bank_accounts: parsed.bank_accounts || []
           };
           emitChange();
           // Sync with database scores asynchronously
@@ -126,6 +130,28 @@ export function usePortfolio() {
               }
             })
             .catch(() => {});
+
+          // Sync with server SQLite store in background for latest accounts and balances
+          fetchSavedPortfolio()
+            .then(res => {
+              if (res?.data && (res.data.holdings?.length > 0 || res.data.stocks?.length > 0 || res.data.mutual_funds?.length > 0 || res.data.epfo_accounts?.length > 0 || res.data.bank_accounts?.length > 0)) {
+                const norm = (arr) => Array.isArray(arr) ? arr.map(normalizeHolding) : arr;
+                globalPortfolio = {
+                  ...res.data,
+                  stocks: norm(res.data.stocks || res.data.holdings),
+                  holdings: norm(res.data.holdings || res.data.stocks),
+                  direct_stocks: norm(res.data.direct_stocks),
+                  etfs: norm(res.data.etfs),
+                  bank_accounts: res.data.bank_accounts || [],
+                  epfo_accounts: res.data.epfo_accounts || []
+                };
+                try {
+                  localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(globalPortfolio));
+                } catch (_) {}
+                emitChange();
+              }
+            })
+            .catch(() => {});
           return;
         }
       } catch (e) {
@@ -136,7 +162,7 @@ export function usePortfolio() {
     // Fallback to SQLite store
     fetchSavedPortfolio()
       .then(res => {
-        if (res?.data && (res.data.holdings?.length > 0 || res.data.stocks?.length > 0 || res.data.mutual_funds?.length > 0 || res.data.epfo_accounts?.length > 0)) {
+        if (res?.data && (res.data.holdings?.length > 0 || res.data.stocks?.length > 0 || res.data.mutual_funds?.length > 0 || res.data.epfo_accounts?.length > 0 || res.data.bank_accounts?.length > 0)) {
           globalPortfolio = res.data;
           try {
             localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(res.data));
@@ -252,6 +278,52 @@ export function usePortfolio() {
       return res;
     } catch (err) {
       globalError = err.message || 'Failed to remove EPFO account.';
+      emitChange();
+      throw err;
+    }
+  }, [updatePortfolioState]);
+
+  const handleUploadBankStatement = useCallback(async (files, password = '', bankType = 'auto') => {
+    if (!files) return;
+    const fileList = Array.isArray(files)
+      ? files
+      : (files instanceof FileList ? Array.from(files) : [files]);
+    if (fileList.length === 0) return;
+
+    globalIsBankUploading = true;
+    globalError = null;
+    emitChange();
+
+    try {
+      const result = await uploadBankStatement(fileList, password, bankType, globalPortfolio);
+      if (!result.portfolio) {
+        throw new Error('The bank statement(s) could not be merged into the portfolio.');
+      }
+      updatePortfolioState(result.portfolio);
+      try {
+        await savePortfolio(result.portfolio, result.portfolio.meta || {});
+      } catch (_) {}
+      return result.portfolio;
+    } catch (err) {
+      globalError = err.message || 'Failed to import bank statement(s).';
+      emitChange();
+      throw err;
+    } finally {
+      globalIsBankUploading = false;
+      emitChange();
+    }
+  }, [updatePortfolioState]);
+
+  const handleDeleteBankAccount = useCallback(async (accountNumber) => {
+    if (!accountNumber) return;
+    try {
+      const res = await deleteBankAccount(accountNumber);
+      if (res.portfolio) {
+        updatePortfolioState(res.portfolio);
+      }
+      return res;
+    } catch (err) {
+      globalError = err.message || 'Failed to remove bank account.';
       emitChange();
       throw err;
     }
@@ -375,6 +447,7 @@ export function usePortfolio() {
     brokerNotice: globalBrokerNotice,
     isBrokerUploading: globalIsBrokerUploading,
     isEPFOUploading: globalIsEPFOUploading,
+    isBankUploading: globalIsBankUploading,
     saveStatus: globalSaveStatus,
     setPortfolioData: updatePortfolioState,
     updatePortfolioState,
@@ -385,6 +458,8 @@ export function usePortfolio() {
     handleUploadEPFOPassbook,
     handleClearPortfolio,
     handleDeleteEPFOAccount,
+    handleUploadBankStatement,
+    handleDeleteBankAccount,
     handleSaveToDatabase,
     handleExportCSV,
     handleExportJSON,

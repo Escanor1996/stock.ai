@@ -135,12 +135,14 @@ export default function AnalyticsDashboard({
   mutualFundsList = [],
   bondsList = [],
   epfoAccounts = [],
+  bankAccounts = [],
   totalVal = 0,
   directStocksVal = 0,
   etfsVal = 0,
   mfVal = 0,
   bondsVal = 0,
   epfoVal = 0,
+  bankVal = 0,
   summary = {},
   historicalValuations = [],
   transactionsList = [],
@@ -198,8 +200,20 @@ export default function AnalyticsDashboard({
         color: '#10b981'
       });
     }
+    if (bankVal > 0) {
+      items.push({
+        name: 'Cash & Bank',
+        value: bankVal,
+        label: `${bankAccounts.length} account${bankAccounts.length > 1 ? 's' : ''}`,
+        pct: (bankVal / safeTotal) * 100,
+        gain: 0,
+        gainPct: 0,
+        has_return: false,
+        color: '#0891b2'
+      });
+    }
     return items;
-  }, [stocksList, mutualFundsList, bondsList, epfoAccounts, directStocksVal, etfsVal, mfVal, bondsVal, epfoVal, safeTotal]);
+  }, [stocksList, mutualFundsList, bondsList, epfoAccounts, bankAccounts, directStocksVal, etfsVal, mfVal, bondsVal, epfoVal, bankVal, safeTotal]);
 
   // ── STRATEGY LENS (Direct / ETFs / Active MFs / Gold Hedge) ──
   const strategyLens = useMemo(() => {
@@ -246,8 +260,20 @@ export default function AnalyticsDashboard({
         color: '#10b981'
       });
     }
+    if (bankVal > 0) {
+      items.push({
+        name: 'Liquid Cash Reserve',
+        value: bankVal,
+        label: `${bankAccounts.length} account${bankAccounts.length > 1 ? 's' : ''}`,
+        pct: (bankVal / safeTotal) * 100,
+        gain: 0,
+        gainPct: 0,
+        has_return: false,
+        color: '#0891b2'
+      });
+    }
     return items;
-  }, [directStocksList, etfsList, mutualFundsList, bondsList, epfoAccounts, directStocksVal, etfsVal, mfVal, bondsVal, epfoVal, safeTotal]);
+  }, [directStocksList, etfsList, mutualFundsList, bondsList, epfoAccounts, bankAccounts, directStocksVal, etfsVal, mfVal, bondsVal, epfoVal, bankVal, safeTotal]);
 
   // ── P&L BAR CHART DATA ──
   const plData = useMemo(() => {

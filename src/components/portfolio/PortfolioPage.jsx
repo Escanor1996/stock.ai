@@ -8,10 +8,15 @@ import StocksTable from './StocksTable';
 import MutualFundsTable from './MutualFundsTable';
 import BondsTable from './BondsTable';
 import EpfoTable from './EpfoTable';
+import BankAccountsTable from './BankAccountsTable';
+import BankUploadModal from './BankUploadModal';
 import {
   uploadCASFile,
   uploadBrokerStatement,
   uploadEPFOPassbook,
+  uploadBankStatement,
+  deleteBankAccount,
+  deleteEPFOAccount,
   fetchSamplePortfolio,
   savePortfolio,
   fetchSavedPortfolio,
@@ -29,6 +34,9 @@ export default function PortfolioPage({
   onUploadEPFO = null,
   isEPFOUploading: externalIsEPFOUploading = undefined,
   onDeleteEPFO = null,
+  onUploadBank = null,
+  isBankUploading: externalIsBankUploading = undefined,
+  onDeleteBankAccount = null,
   onExportCSV = null,
   onExportJSON = null,
   onSave = null,
@@ -46,7 +54,9 @@ export default function PortfolioPage({
   const [activeTab, setActiveTab] = useState(initialTab || 'stocks');
   // Chart toggle: 'value' | 'change_pct'
   const [chartMetric, setChartMetric] = useState('value');
-
+  const [isBankModalOpen, setIsBankModalOpen] = useState(false);
+  const [internalIsBankUploading, setInternalIsBankUploading] = useState(false);
+  const isBankUploading = externalIsBankUploading !== undefined ? externalIsBankUploading : internalIsBankUploading;
   useEffect(() => {
     if (initialTab) {
       setActiveTab(initialTab);
@@ -217,6 +227,41 @@ export default function PortfolioPage({
       }
     } catch (err) {
       setError(err.message || 'Failed to remove EPFO account.');
+    }
+  };
+
+  const handleUploadBank = async (files, password = '', bankType = 'auto') => {
+    if (onUploadBank) {
+      return onUploadBank(files, password, bankType);
+    }
+    setInternalIsBankUploading(true);
+    setError(null);
+    try {
+      const res = await uploadBankStatement(files, password, bankType, portfolioData);
+      if (res.portfolio) {
+        updatePortfolioState(res.portfolio);
+      }
+      return res.portfolio;
+    } catch (err) {
+      setError(err.message || 'Failed to import bank statement(s).');
+      throw err;
+    } finally {
+      setInternalIsBankUploading(false);
+    }
+  };
+
+  const handleDeleteBank = async (accountNumber) => {
+    if (onDeleteBankAccount) {
+      return onDeleteBankAccount(accountNumber);
+    }
+    try {
+      const res = await deleteBankAccount(accountNumber);
+      if (res.portfolio) {
+        updatePortfolioState(res.portfolio);
+      }
+      return res;
+    } catch (err) {
+      setError(err.message || 'Failed to remove bank account.');
     }
   };
 
@@ -522,6 +567,10 @@ export default function PortfolioPage({
     return portfolioData?.epfo_accounts || [];
   }, [portfolioData]);
 
+  const bankAccounts = useMemo(() => {
+    return portfolioData?.bank_accounts || [];
+  }, [portfolioData]);
+
   const historicalValuations = useMemo(() => {
     return portfolioData?.historical_valuations || portfolioData?.meta?.historical_valuations || [];
   }, [portfolioData]);
@@ -537,7 +586,8 @@ export default function PortfolioPage({
   // Aggregated Summary values
   const summary = portfolioData?.summary || {};
   const epfoVal = summary.total_epfo_value || epfoAccounts.reduce((s, a) => s + (a.total_balance || 0), 0);
-  const totalVal = summary.total_portfolio_value || (stocksList.reduce((s, h) => s + (h.live_value || h.value || 0), 0) + mutualFundsList.reduce((s, m) => s + (m.value || 0), 0) + bondsList.reduce((s, b) => s + (b.value || 0), 0) + epfoVal);
+  const bankVal = summary.total_bank_value || bankAccounts.reduce((s, a) => s + (a.closing_balance || 0), 0);
+  const totalVal = summary.total_portfolio_value || (stocksList.reduce((s, h) => s + (h.live_value || h.value || 0), 0) + mutualFundsList.reduce((s, m) => s + (m.value || 0), 0) + bondsList.reduce((s, b) => s + (b.value || 0), 0) + epfoVal + bankVal);
   const stocksVal = summary.total_stocks_value || summary.live_stocks_value || stocksList.reduce((s, h) => s + (h.live_value || h.value || 0), 0);
   const directStocksVal = summary.direct_stocks_value || directStocksList.reduce((s, h) => s + (h.live_value || h.value || 0), 0);
   const etfsVal = summary.etfs_value || etfsList.reduce((s, h) => s + (h.live_value || h.value || 0), 0);
@@ -559,11 +609,12 @@ export default function PortfolioPage({
         onUploadBroker={handleUploadBrokerSpreadsheet}
         onUploadEPFO={handleUploadEPFOPassbook}
         isEPFOUploading={isEPFOUploading}
+        onOpenBankModal={() => setIsBankModalOpen(true)}
+        isBankUploading={isBankUploading}
         saveStatus={saveStatus}
         isExporting={isExporting}
         isBrokerUploading={isBrokerUploading}
       />
-
       {brokerNotice && (
         <div className="p-3 bg-info/10 border border-info/30 rounded-xl text-xs text-info flex items-center justify-between">
           <div className="flex items-center gap-2">
@@ -592,7 +643,9 @@ export default function PortfolioPage({
             mutualFundsList={mutualFundsList}
             bondsList={bondsList}
             epfoAccounts={epfoAccounts}
+            bankAccounts={bankAccounts}
             epfoVal={epfoVal}
+            bankVal={bankVal}
             totalVal={totalVal}
             stocksVal={stocksVal}
             mfVal={mfVal}
@@ -611,6 +664,7 @@ export default function PortfolioPage({
                 { key: 'mutual_funds', label: 'MUTUAL FUNDS' },
                 ...(bondsList.length > 0 ? [{ key: 'bonds', label: 'BONDS' }] : []),
                 { key: 'epfo', label: `EPFO${epfoAccounts.length > 0 ? ` (${epfoAccounts.length})` : ''}` },
+                { key: 'bank', label: `BANK ACCOUNTS${bankAccounts.length > 0 ? ` (${bankAccounts.length})` : ''}` },
                 { key: 'analytics', label: 'ANALYTICS' },
               ].map(tab => (
                 <button
@@ -685,6 +739,16 @@ export default function PortfolioPage({
             />
           )}
 
+          {activeTab === 'bank' && (
+            <BankAccountsTable
+              bankAccounts={bankAccounts}
+              summary={summary}
+              onOpenUploadModal={() => setIsBankModalOpen(true)}
+              isBankUploading={isBankUploading}
+              onDeleteAccount={handleDeleteBank}
+            />
+          )}
+
           {activeTab === 'analytics' && (
             <AnalyticsDashboard
               stocksList={stocksList}
@@ -694,7 +758,9 @@ export default function PortfolioPage({
               bondsList={bondsList}
               totalVal={totalVal}
               epfoAccounts={epfoAccounts}
+              bankAccounts={bankAccounts}
               epfoVal={epfoVal}
+              bankVal={bankVal}
               directStocksVal={directStocksVal}
               etfsVal={etfsVal}
               mfVal={mfVal}
@@ -708,6 +774,15 @@ export default function PortfolioPage({
           )}
         </div>
       )}
+
+      {/* Bank Upload Modal */}
+      <BankUploadModal
+        isOpen={isBankModalOpen}
+        onClose={() => setIsBankModalOpen(false)}
+        onUpload={handleUploadBank}
+        isUploading={isBankUploading}
+        error={error}
+      />
     </div>
   );
 }

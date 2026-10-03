@@ -417,6 +417,7 @@ export function savePortfolioHoldings(portfolioInput, metaInput = {}) {
       if (portfolioInput.file_type) meta.file_type = portfolioInput.file_type;
       if (portfolioInput.analytics) meta.analytics = portfolioInput.analytics;
       if (Array.isArray(portfolioInput.epfo_accounts)) meta.epfo_accounts = portfolioInput.epfo_accounts;
+      if (Array.isArray(portfolioInput.bank_accounts)) meta.bank_accounts = portfolioInput.bank_accounts;
     }
 
     for (const h of allItems) {
@@ -508,6 +509,32 @@ export function getPortfolioHoldings() {
   const epfoValue = roundCurrency(
     epfoAccounts.reduce((sum, account) => sum + numericValue(account.total_balance), 0)
   );
+  const bankAccounts = Array.isArray(meta.bank_accounts)
+    ? meta.bank_accounts.map((account) => {
+      const closingBalance = roundCurrency(account.closing_balance);
+      const openingBalance = roundCurrency(account.opening_balance);
+      const totalCredits = roundCurrency(account.total_credits);
+      const totalDebits = roundCurrency(account.total_debits);
+      const netCashflow = roundCurrency(account.net_cashflow ?? (totalCredits - totalDebits));
+      return {
+        ...account,
+        closing_balance: closingBalance,
+        opening_balance: openingBalance,
+        total_credits: totalCredits,
+        total_debits: totalDebits,
+        net_cashflow: netCashflow
+      };
+    })
+    : [];
+  const totalBankVal = roundCurrency(
+    bankAccounts.reduce((sum, account) => sum + numericValue(account.closing_balance), 0)
+  );
+  const totalBankInflows = roundCurrency(
+    bankAccounts.reduce((sum, account) => sum + numericValue(account.total_credits), 0)
+  );
+  const totalBankOutflows = roundCurrency(
+    bankAccounts.reduce((sum, account) => sum + numericValue(account.total_debits), 0)
+  );
 
   const totalStocksVal = stocks.reduce((sum, item) => sum + itemValue(item), 0);
   const directStocksVal = directStocks.reduce((sum, item) => sum + itemValue(item), 0);
@@ -522,8 +549,7 @@ export function getPortfolioHoldings() {
   const bondsGain = bonds.reduce((sum, item) => sum + numericValue(item.gain), 0);
   const totalInvested = stocksCost + mfCost + bondsCost;
   const totalGain = stocksGain + mfGain + bondsGain;
-  const totalPortfolioValue = totalStocksVal + totalMfVal + totalBondsVal + epfoValue;
-
+  const totalPortfolioValue = totalStocksVal + totalMfVal + totalBondsVal + epfoValue + totalBankVal;
   const aiScoresMap = getAllAIScores();
   for (const s of stocks) {
     const value = itemValue(s);
@@ -568,7 +594,10 @@ export function getPortfolioHoldings() {
     account.weight_pct = totalPortfolioValue > 0 ? roundCurrency((account.total_balance / totalPortfolioValue) * 100) : 0;
     account.total_weight_pct = account.weight_pct;
   }
-
+  for (const account of bankAccounts) {
+    account.weight_pct = totalPortfolioValue > 0 ? roundCurrency((account.closing_balance / totalPortfolioValue) * 100) : 0;
+    account.total_weight_pct = account.weight_pct;
+  }
   const priorSummary = meta.summary && typeof meta.summary === 'object' ? meta.summary : {};
   const totalPositions = stocks.length + mutualFunds.length + bonds.length;
   const latestEPFOStatement = epfoAccounts.reduce((latest, account) => account.statement_date || latest, '');
@@ -581,6 +610,10 @@ export function getPortfolioHoldings() {
     total_mf_value: roundCurrency(totalMfVal),
     total_bonds_value: roundCurrency(totalBondsVal),
     total_epfo_value: epfoValue,
+    total_bank_value: totalBankVal,
+    total_bank_inflows: totalBankInflows,
+    total_bank_outflows: totalBankOutflows,
+    bank_accounts_count: bankAccounts.length,
     epfo_employee_share: roundCurrency(epfoTotals.employee_share),
     epfo_employer_share: roundCurrency(epfoTotals.employer_share),
     epfo_pension_balance: roundCurrency(epfoTotals.pension_balance),
@@ -593,7 +626,7 @@ export function getPortfolioHoldings() {
     bonds_count: bonds.length,
     total_positions: totalPositions,
     total_securities_count: totalPositions,
-    total_assets_count: totalPositions + epfoAccounts.length,
+    total_assets_count: totalPositions + epfoAccounts.length + bankAccounts.length,
     total_stocks_invested: roundCurrency(stocksCost),
     total_mf_invested: roundCurrency(mfCost),
     total_bonds_invested: roundCurrency(bondsCost),
@@ -613,6 +646,7 @@ export function getPortfolioHoldings() {
     mutual_funds: mutualFunds,
     bonds,
     epfo_accounts: epfoAccounts,
+    bank_accounts: bankAccounts,
     historical_valuations: meta.historical_valuations || [],
     asset_allocation: meta.asset_allocation || [],
     transactions: meta.transactions || [],

@@ -3,7 +3,7 @@ import express from 'express';
 import cors from 'cors';
 import { getStockData, getHistoricalPrices, searchStocks } from './services/stockService.js';
 import { generateAIScore, generateAIVerdict, generateAIAnalysis } from './services/aiService.js';
-import { parseCASFile, parseBrokerSpreadsheet, parseEPFOPassbook, mergeBrokerPrices, mergeEPFOAccounts, getSamplePortfolio, exportToCSV } from './services/casService.js';
+import { parseCASFile, parseBrokerSpreadsheet, parseEPFOPassbook, parseBankStatement, mergeBrokerPrices, mergeEPFOAccounts, mergeBankAccounts, refreshPortfolioSummary, computePortfolioAnalytics, getSamplePortfolio, exportToCSV } from './services/casService.js';
 import * as db from './db.js';
 import multer from 'multer';
 import os from 'os';
@@ -165,6 +165,10 @@ app.post('/api/portfolio/parse', upload.single('file'), async (req, res) => {
       if (Array.isArray(existingEPFOAccounts) && existingEPFOAccounts.length > 0) {
         result = mergeEPFOAccounts(result, { accounts: existingEPFOAccounts });
       }
+      const existingBankAccounts = currentPortfolio?.bank_accounts || currentPortfolio?.meta?.bank_accounts;
+      if (Array.isArray(existingBankAccounts) && existingBankAccounts.length > 0) {
+        result = mergeBankAccounts(result, { accounts: existingBankAccounts });
+      }
     }
     res.json(result);
   } catch (err) {
@@ -278,6 +282,123 @@ app.delete('/api/portfolio/epfo-account/:memberId', (req, res) => {
   }
 });
 
+// POST /api/portfolio/bank-statement — Parse and merge bank account statement PDFs (HDFC, Standard Chartered, Generic)
+app.post('/api/portfolio/bank-statement', upload.any(), async (req, res) => {
+  const uploadedFiles = Array.isArray(req.files) && req.files.length > 0
+    ? req.files
+    : (req.file ? [req.file] : []);
+
+  if (uploadedFiles.length === 0) {
+    return res.status(400).json({ success: false, error: 'No bank statement PDF uploaded' });
+  }
+
+  const password = req.body.password || '';
+  const bankType = req.body.bank_type || 'auto';
+
+  try {
+    let currentPortfolio = req.body.portfolio
+      ? (typeof req.body.portfolio === 'string' ? JSON.parse(req.body.portfolio) : req.body.portfolio)
+      : (db.getPortfolioHoldings() || {});
+
+    const allAccounts = [];
+    const errors = [];
+
+    for (const file of uploadedFiles) {
+      try {
+        const bankData = await parseBankStatement(file.path, password, bankType);
+        if (Array.isArray(bankData.accounts)) {
+          allAccounts.push(...bankData.accounts);
+        }
+      } catch (fileErr) {
+        console.error(`Error parsing bank statement ${file.originalname}:`, fileErr.message);
+        errors.push({
+          file: file.originalname,
+          error: fileErr.message,
+          errorType: fileErr.errorType || 'BANK_PARSE_ERROR'
+        });
+      }
+    }
+
+    if (allAccounts.length === 0) {
+      const pwdError = errors.find(e => e.errorType === 'INCORRECT_PASSWORD');
+      const firstError = pwdError?.error || errors[0]?.error || 'Failed to parse bank statement(s). Check password or file format.';
+      const statusCode = pwdError ? 401 : 422;
+      return res.status(statusCode).json({
+        success: false,
+        error_type: pwdError ? 'INCORRECT_PASSWORD' : 'BANK_PARSE_ERROR',
+        error: firstError,
+        details: errors
+      });
+    }
+
+    const combinedData = {
+      success: true,
+      source: 'Bank Statement',
+      accounts: allAccounts
+    };
+
+    const portfolio = mergeBankAccounts(currentPortfolio, combinedData);
+    db.savePortfolioHoldings(portfolio, portfolio.meta || {});
+
+    res.json({
+      success: true,
+      bank_data: combinedData,
+      portfolio,
+      errors: errors.length > 0 ? errors : undefined
+    });
+  } catch (err) {
+    console.error('Bank statement merge error:', err.message);
+    const statusCode = err.errorType === 'INCORRECT_PASSWORD' ? 401 : 422;
+    res.status(statusCode).json({
+      success: false,
+      error_type: err.errorType || 'BANK_PARSE_ERROR',
+      error: err.message || 'Failed to process bank statement(s)'
+    });
+  }
+});
+
+// DELETE /api/portfolio/bank-account/:accountNumber — Remove a specific bank account
+app.delete('/api/portfolio/bank-account/:accountNumber', (req, res) => {
+  const rawAcc = req.params.accountNumber;
+  if (!rawAcc) {
+    return res.status(400).json({ success: false, error: 'Account number is required' });
+  }
+  const target = String(rawAcc).toUpperCase().replace(/\s+/g, '');
+
+  try {
+    const portfolio = db.getPortfolioHoldings();
+    if (!portfolio || !Array.isArray(portfolio.bank_accounts)) {
+      return res.status(404).json({ success: false, error: 'No bank accounts found' });
+    }
+
+    const filtered = portfolio.bank_accounts.filter(acc => {
+      const accNum = String(acc.account_number || '').toUpperCase().replace(/\s+/g, '');
+      const maskedNum = String(acc.masked_account_number || '').toUpperCase().replace(/\s+/g, '');
+      return accNum !== target && maskedNum !== target;
+    });
+
+    portfolio.bank_accounts = filtered;
+    if (portfolio.meta) {
+      portfolio.meta.bank_accounts = filtered;
+    }
+
+    refreshPortfolioSummary(portfolio);
+    portfolio.analytics = computePortfolioAnalytics(portfolio);
+
+    db.savePortfolioHoldings(portfolio, portfolio.meta || {});
+    const updated = db.getPortfolioHoldings();
+
+    res.json({
+      success: true,
+      message: `Bank account ${rawAcc} removed successfully`,
+      portfolio: updated
+    });
+  } catch (err) {
+    console.error('Delete bank account error:', err);
+    res.status(500).json({ success: false, error: 'Failed to delete bank account' });
+  }
+});
+
 // POST /api/portfolio/broker-statement — Parse and merge broker spreadsheet (Groww, Zerodha, Upstox, etc.)
 app.post('/api/portfolio/broker-statement', upload.single('file'), async (req, res) => {
   if (!req.file) {
@@ -331,7 +452,7 @@ app.get('/api/portfolio/sample', (req, res) => {
 // POST /api/portfolio/save — Persist portfolio to local SQLite
 app.post('/api/portfolio/save', (req, res) => {
   const payload = req.body;
-  if (!payload || (!payload.holdings && !payload.stocks && !payload.mutual_funds && !payload.epfo_accounts && !Array.isArray(payload))) {
+  if (!payload || (!payload.holdings && !payload.stocks && !payload.mutual_funds && !payload.epfo_accounts && !payload.bank_accounts && !Array.isArray(payload))) {
     return res.status(400).json({ success: false, error: 'Valid portfolio payload is required' });
   }
 
@@ -380,7 +501,7 @@ app.delete('/api/portfolio', (req, res) => {
 // POST /api/portfolio/export/csv — Generate downloadable CSV
 app.post('/api/portfolio/export/csv', (req, res) => {
   const payload = req.body;
-  if (!payload || (!payload.holdings && !payload.stocks && !payload.mutual_funds && !payload.epfo_accounts && !Array.isArray(payload))) {
+  if (!payload || (!payload.holdings && !payload.stocks && !payload.mutual_funds && !payload.epfo_accounts && !payload.bank_accounts && !Array.isArray(payload))) {
     return res.status(400).json({ success: false, error: 'Holdings or portfolio payload is required' });
   }
 

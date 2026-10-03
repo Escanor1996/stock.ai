@@ -8,11 +8,13 @@ export default function MetricCards({
   mutualFundsList = [],
   bondsList = [],
   epfoAccounts = [],
+  bankAccounts = [],
   totalVal = 0,
   stocksVal = 0,
   mfVal = 0,
   bondsVal = 0,
   epfoVal = 0,
+  bankVal = 0,
   stockGainTotal = 0,
   stockGainPct = 0,
   statementPeriod = {}
@@ -77,8 +79,14 @@ export default function MetricCards({
         </div>
       </div>
 
-      {/* ── 4-COLUMN SUMMARY CARDS (Header Outside Body Pattern) ── */}
-      <div className={`grid grid-cols-2 ${epfoVal > 0 ? 'md:grid-cols-3 lg:grid-cols-5' : 'md:grid-cols-4'} gap-4`}>
+      {/* ── SUMMARY CARDS (Dynamic Columns Pattern) ── */}
+      <div className={`grid grid-cols-2 ${
+        (epfoVal > 0 && bankVal > 0)
+          ? 'md:grid-cols-3 lg:grid-cols-6'
+          : (epfoVal > 0 || bankVal > 0)
+          ? 'md:grid-cols-3 lg:grid-cols-5'
+          : 'md:grid-cols-4'
+      } gap-4`}>
         {/* Card 1: Stocks & ETFs */}
         <div className="space-y-1.5">
           <div className="text-[11px] font-semibold text-muted-foreground tracking-wider uppercase px-0.5">
@@ -140,6 +148,23 @@ export default function MetricCards({
               </div>
               <div className="text-xs text-muted-foreground truncate">
                 {epfoAccounts.length} Account{epfoAccounts.length > 1 ? 's' : ''} • Sovereign Backed
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Card 5: Liquid Cash & Bank */}
+        {bankVal > 0 && (
+          <div className="space-y-1.5">
+            <div className="text-[11px] font-semibold text-muted-foreground tracking-wider uppercase px-0.5">
+              Cash &amp; Bank
+            </div>
+            <div className="glass-card p-4 space-y-1">
+              <div className="text-lg font-bold font-mono text-sky-600">
+                ₹{bankVal.toLocaleString('en-IN', { maximumFractionDigits: 0 })}
+              </div>
+              <div className="text-xs text-muted-foreground truncate">
+                {bankAccounts.length} Account{bankAccounts.length > 1 ? 's' : ''} &bull; Liquid Reserves
               </div>
             </div>
           </div>

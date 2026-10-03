@@ -17,7 +17,8 @@ import {
   PieChart,
   Activity,
   CheckCircle2,
-  Wallet
+  Wallet,
+  Landmark
 } from 'lucide-react';
 import {
   ResponsiveContainer,
@@ -82,6 +83,7 @@ export default function PortfolioDashboard({
   const mutualFunds = useMemo(() => portfolioData?.mutual_funds || [], [portfolioData]);
   const bonds = useMemo(() => portfolioData?.bonds || [], [portfolioData]);
   const epfoAccounts = useMemo(() => portfolioData?.epfo_accounts || [], [portfolioData]);
+  const bankAccounts = useMemo(() => portfolioData?.bank_accounts || [], [portfolioData]);
   const historical = useMemo(() => portfolioData?.historical_valuations || portfolioData?.meta?.historical_valuations || [], [portfolioData]);
   const summary = portfolioData?.summary || {};
   const analytics = portfolioData?.analytics || null;
@@ -92,7 +94,8 @@ export default function PortfolioDashboard({
   const mfVal = summary.total_mf_value || mutualFunds.reduce((s, m) => s + (m.value || 0), 0);
   const bondsVal = summary.total_bonds_value || bonds.reduce((s, b) => s + (b.live_value || b.value || 0), 0);
   const epfoVal = summary.total_epfo_value || epfoAccounts.reduce((s, a) => s + (a.total_balance || 0), 0);
-  const totalNetWorth = summary.total_portfolio_value || (stocksVal + mfVal + bondsVal + epfoVal);
+  const bankVal = summary.total_bank_value || bankAccounts.reduce((s, a) => s + (a.closing_balance || 0), 0);
+  const totalNetWorth = summary.total_portfolio_value || (stocksVal + mfVal + bondsVal + epfoVal + bankVal);
   const stocksCost = summary.total_stocks_invested || stocks.reduce((s, h) => s + (h.cost_basis || ((h.price || 0) * (h.quantity || 0))), 0);
   const mfCost = mutualFunds.reduce((s, m) => s + (m.cost_basis || (m.value || 0)), 0);
   const bondsCost = summary.total_bonds_invested || bonds.reduce((s, b) => s + (b.cost_basis || ((b.price || 0) * (b.quantity || 0))), 0);
@@ -109,6 +112,7 @@ export default function PortfolioDashboard({
   const mfPct = totalNetWorth > 0 ? (mfVal / totalNetWorth) * 100 : 0;
   const bondsPct = totalNetWorth > 0 ? (bondsVal / totalNetWorth) * 100 : 0;
   const epfoPct = totalNetWorth > 0 ? (epfoVal / totalNetWorth) * 100 : 0;
+  const bankPct = totalNetWorth > 0 ? (bankVal / totalNetWorth) * 100 : 0;
 
   // Cross-Asset Top Holdings (ranked by market value across all categories)
   const topHoldings = useMemo(() => {
@@ -219,8 +223,19 @@ export default function PortfolioDashboard({
         targetTab: 'epfo'
       });
     }
+    if (bankAccounts.length > 0) {
+      list.push({
+        name: 'Liquid Cash & Bank Accounts',
+        subtitle: `${bankAccounts.length} Connected Account${bankAccounts.length > 1 ? 's' : ''}`,
+        count: bankAccounts.map(a => a.bank_name).filter(Boolean).slice(0, 2).join(', ') || 'Bank Statements',
+        value: bankVal,
+        badge: 'Liquid Cash',
+        badgeClass: 'bg-sky-500/10 text-sky-700 dark:text-sky-400 border-sky-500/30',
+        targetTab: 'bank'
+      });
+    }
     return list;
-  }, [stocks, bonds, mutualFunds, epfoAccounts, stocksVal, bondsVal, mfVal, epfoVal, summary]);
+  }, [stocks, bonds, mutualFunds, epfoAccounts, bankAccounts, stocksVal, bondsVal, mfVal, epfoVal, bankVal, summary]);
 
   // Chart data
   const chartData = useMemo(() => {
@@ -436,7 +451,7 @@ export default function PortfolioDashboard({
               {formatCurrency(totalCostBasis)}
             </div>
             <div className="text-[11px] text-muted-foreground">
-              {stocks.length + mutualFunds.length + bonds.length + epfoAccounts.length} Assets Tracked
+              {stocks.length + mutualFunds.length + bonds.length + epfoAccounts.length + bankAccounts.length} Assets Tracked
             </div>
           </div>
         </div>
@@ -466,6 +481,13 @@ export default function PortfolioDashboard({
                 title={`EPFO Provident Fund: ${epfoPct.toFixed(1)}%`}
               />
             )}
+            {bankPct > 0 && (
+              <div
+                style={{ width: `${bankPct}%` }}
+                className="bg-sky-600 transition-all duration-500"
+                title={`Cash & Bank: ${bankPct.toFixed(1)}%`}
+              />
+            )}
           </div>
 
           {/* Allocation Legend */}
@@ -490,6 +512,12 @@ export default function PortfolioDashboard({
                   <span>EPFO: <strong className="text-foreground font-mono">{epfoPct.toFixed(1)}%</strong></span>
                 </span>
               )}
+              {bankVal > 0 && (
+                <span className="flex items-center gap-1.5">
+                  <span className="w-2 h-2 rounded-full bg-sky-600" />
+                  <span>Cash & Bank: <strong className="text-foreground font-mono">{bankPct.toFixed(1)}%</strong></span>
+                </span>
+              )}
             {summary.statement_period?.to && (
               <span className="text-[11px] font-mono text-muted-foreground/80">
                 Statement: {summary.statement_period.to}
@@ -500,7 +528,13 @@ export default function PortfolioDashboard({
       </div>
 
       {/* ── 2. THREE MULTI-ASSET CARDS (Quick Drill-Down to Holdings) ── */}
-      <div className={`grid grid-cols-1 ${epfoVal > 0 ? 'md:grid-cols-2 lg:grid-cols-4' : 'md:grid-cols-3'} gap-4`}>
+      <div className={`grid grid-cols-1 ${
+        (epfoVal > 0 && bankVal > 0)
+          ? 'md:grid-cols-3 lg:grid-cols-5'
+          : (epfoVal > 0 || bankVal > 0)
+          ? 'md:grid-cols-2 lg:grid-cols-4'
+          : 'md:grid-cols-3'
+      } gap-4`}>
         {/* Card 1: Direct Stocks & ETFs */}
         <div
           onClick={() => onNavigateToHoldings('stocks')}
@@ -645,6 +679,42 @@ export default function PortfolioDashboard({
             </div>
           </div>
         )}
+
+        {/* Card 5: Liquid Cash & Bank Accounts */}
+        {bankVal > 0 && (
+          <div
+            onClick={() => onNavigateToHoldings('bank')}
+            className="glass-card p-5 space-y-3 cursor-pointer hover:border-sky-500/40 transition-all duration-200 group relative"
+          >
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <div className="w-7 h-7 rounded-lg bg-sky-500/10 flex items-center justify-center text-sky-600">
+                  <Landmark className="w-4 h-4" />
+                </div>
+                <span className="text-xs font-semibold text-foreground">Cash & Bank Accounts</span>
+              </div>
+              <ArrowUpRight className="w-4 h-4 text-muted-foreground group-hover:text-sky-600 transition-colors" />
+            </div>
+
+            <div>
+              <div className="font-mono text-2xl font-bold text-foreground">
+                {formatCurrency(bankVal)}
+              </div>
+              <div className="text-xs text-muted-foreground flex items-center gap-1.5 mt-0.5">
+                <span>{bankAccounts.length} Account{bankAccounts.length > 1 ? 's' : ''}</span>
+                <span>•</span>
+                <span className="text-sky-600 font-medium font-mono">
+                  Liquid Reserves
+                </span>
+              </div>
+            </div>
+
+            <div className="pt-2 border-t border-border/30 flex items-center justify-between text-[11px] text-muted-foreground">
+              <span>Instant Access</span>
+              <span className="font-mono font-medium text-foreground">{bankPct.toFixed(1)}% share</span>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* ── 3. TWO-COLUMN DASHBOARD GRID (Wealthfolio Layout) ── */}
@@ -733,7 +803,7 @@ export default function PortfolioDashboard({
                 onClick={() => onNavigateToHoldings('stocks')}
                 className="text-xs font-semibold text-muted-foreground hover:text-foreground inline-flex items-center gap-1 transition-colors"
               >
-                <span>View all {stocks.length + mutualFunds.length + bonds.length + epfoAccounts.length}</span>
+                <span>View all {stocks.length + mutualFunds.length + bonds.length + epfoAccounts.length + bankAccounts.length}</span>
                 <ChevronRight className="w-3.5 h-3.5" />
               </button>
             </div>
