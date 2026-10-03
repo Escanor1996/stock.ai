@@ -235,12 +235,276 @@ def synthesize_monthly_cashflow(transactions):
 
     return cashflows
 
+CATEGORIES = [
+    {
+        "id": "investments",
+        "name": "Investments & Wealth",
+        "color": "#10b981",
+        "patterns": [
+            r"\bGROWW\b", r"\bKUVERA\b", r"\bZERODHA\b", r"\bUPSTOX\b", r"MUTUAL\s*FUND",
+            r"AXIS\s*MUTUAL", r"\bMIRAE\b", r"\bNPS\b", r"\bPPF\b", r"\bSECURITIES\b",
+            r"HDFC\s*MF", r"ICICI\s*PRUDENTIAL", r"\bNIPPON\b", r"SBI\s*MUTUAL",
+            r"PARAG\s*PARIKH", r"UTI\s*MUTUAL"
+        ]
+    },
+    {
+        "id": "credit_card",
+        "name": "Credit Card & Loans",
+        "color": "#8b5cf6",
+        "patterns": [
+            r"PZ\s*HDFC\s*CC", r"PZHDFCCCBILLPAYUPI", r"PZCREDITCARD", r"PZCREDITCARDUPI",
+            r"CREDIT\s*CARD", r"CC\s*BILLPAY", r"\bCRED\b", r"\bLOAN\b", r"\bEMI\b"
+        ]
+    },
+    {
+        "id": "food_dining",
+        "name": "Food & Dining",
+        "color": "#f59e0b",
+        "patterns": [
+            r"MIDTOWN\s*FOODS", r"EMBER\s*CRUST", r"DAKSHIN\s*DELIGHTS", r"\bSWIGGY\b",
+            r"\bZOMATO\b", r"\bRESTAURANT\b", r"\bCAFE\b", r"\bBAKERY\b", r"\bFOOD\b",
+            r"\bPIZZA\b", r"\bBURGER\b", r"\bCHAI\b", r"\bCOFFEE\b"
+        ]
+    },
+    {
+        "id": "utilities",
+        "name": "Utilities & Housing",
+        "color": "#06b6d4",
+        "patterns": [
+            r"PZELECTRICITY", r"\bELECTRICITY\b", r"MYXENIUS", r"RADIUS\s*SYNERGIES",
+            r"\bBESCOM\b", r"\bTNEB\b", r"\bWATER\b", r"\bGAS\b", r"\bAIRTEL\b",
+            r"\bJIO\b", r"\bBROADBAND\b", r"\bBILL\b"
+        ]
+    },
+    {
+        "id": "transfers",
+        "name": "Personal Transfers",
+        "color": "#3b82f6",
+        "patterns": [
+            r"\bSANCHAIKA\b", r"\bCHAKRABORT\b", r"\bKAUSTAV\b", r"\bPASWAN\b",
+            r"TRANSFER\s*TO", r"\bFAMILY\b"
+        ]
+    },
+    {
+        "id": "travel",
+        "name": "Travel & Commute",
+        "color": "#f43f5e",
+        "patterns": [
+            r"AISHA\s*GUEST\s*HOUSE", r"\bHOTEL\b", r"GUEST\s*HOUSE", r"\bUBER\b",
+            r"\bOLA\b", r"\bIRCTC\b", r"\bFLIGHT\b", r"\bINDIGO\b", r"MAKEMYTRIP",
+            r"\bFUEL\b", r"\bPETROL\b"
+        ]
+    },
+    {
+        "id": "shopping",
+        "name": "Shopping & Services",
+        "color": "#64748b",
+        "patterns": [
+            r"\bAMAZON\b", r"\bFLIPKART\b", r"\bMYNTRA\b", r"PAX\s*INNOVATION",
+            r"\bRAZORPAY\b", r"\bPAYTM\b", r"RELIANCE\s*RETAIL", r"\bSTORE\b",
+            r"\bMART\b", r"\bGROCERY\b", r"\bBLINKIT\b", r"\bZEPTO\b", r"\bINSTAMART\b",
+            r"CP\s*WEQ"
+        ]
+    },
+    {
+        "id": "other",
+        "name": "Other / Miscellaneous",
+        "color": "#94a3b8",
+        "patterns": []
+    }
+]
+
+ALIAS_RULES = [
+    (r"GROWW", "Groww Invest Tech"),
+    (r"KUVERA", "Kuvera"),
+    (r"(?:PZ\s*HDFC\s*CC|PZHDFCCCBILLPAYUPI|PZCREDITCARD|CREDIT\s*CARD)", "HDFC Credit Card Bill"),
+    (r"MIDTOWN\s*FOODS", "Midtown Foods"),
+    (r"RADIUS\s*SYNERGIES", "Radius Synergies (Electricity)"),
+    (r"(?:SANCHAIKA|CHAKRABORT)", "Sanchaika Chakraborty"),
+    (r"EMBER\s*CRUST", "Ember Crust"),
+    (r"DAKSHIN\s*DELIGHTS", "Dakshin Delights"),
+    (r"PZELECTRICITY", "PZ Electricity"),
+    (r"AISHA\s*GUEST\s*HOUSE", "Aisha Guest House"),
+    (r"PAX\s*INNOVATION", "Pax Innovation"),
+    (r"PASWAN", "Shatrudhan Paswan"),
+    (r"CP\s*WEQ", "CP WEQ")
+]
+
+SCRUB_PATTERNS = [
+    r"Opening\s*Balance\s*:.*",
+    r"Closing\s*Balance\s*:.*",
+    r"Limit\s*:.*",
+    r"Txn\s*Date\b.*",
+    r"Page\s+\d+\s+of\s+\d+.*",
+    r"Login\s+to\s+online\s+Banking.*",
+    r"Stay\s+updated\s+with\s+important\s+updates.*",
+    r"Report\s+irregularities\s+in\s+your\s+statement.*",
+    r"register\s+nominee\s+in\s+your\s+accounts.*",
+    r"Please\s+ensure\s+your\s+latest\s+email.*",
+    r"Register\s+now\s+to\s+nev.*",
+    r"empty\s*note\b",
+    r"Value\s+Date\b.*",
+    r"Value\s+Dt\s+\d{2}[/-]\d{2}[/-]\d{2,4}",
+]
+
+
+def scrub_narration(raw):
+    if not raw:
+        return ""
+    text = str(raw)
+    text = re.sub(r"\bPayme\s+nt\b", "Payment", text, flags=re.IGNORECASE)
+    text = re.sub(r"\bP\s+aid\b", "Paid", text, flags=re.IGNORECASE)
+    for p in SCRUB_PATTERNS:
+        text = re.sub(p, "", text, flags=re.IGNORECASE)
+    text = re.sub(r"\s+", " ", text).strip()
+    text = re.sub(r"[\s\-_/]+$", "", text).strip()
+    return text
+
+
+def extract_merchant(narration):
+    clean = (narration or "").strip()
+    for pattern, alias in ALIAS_RULES:
+        if re.search(pattern, clean, re.IGNORECASE):
+            return alias
+    # HDFC UPI format: UPI-<Merchant>-<VPA>-...
+    m = re.match(r"^UPI-([^@-]+?)-(?:[A-Za-z0-9._]+@|pty|ybl|paytm)", clean, re.IGNORECASE)
+    if m:
+        return m.group(1).strip()
+    # SCB UPI format: UPI/<REF>/ <MERCHANT> /...
+    m = re.match(r"^UPI/\d+/\s*([^/]+?)\s*/", clean)
+    if m:
+        return m.group(1).strip()
+    # NEFT format
+    m = re.match(r"^NEFT\s+(?:[A-Z0-9]+\s+)?([A-Za-z0-9\s]+?)(?:-|\s+AXIS|\s+HDFC|$)", clean, re.IGNORECASE)
+    if m:
+        return m.group(1).strip()
+    return clean[:30] if len(clean) > 30 else (clean or "Unknown Merchant")
+
+
+def categorize_transaction(narration):
+    text = narration or ""
+    for cat in CATEGORIES:
+        for pat in cat["patterns"]:
+            if re.search(pat, text, re.IGNORECASE):
+                return cat["name"], cat["color"]
+    return "Other / Miscellaneous", "#94a3b8"
+
+
+def synthesize_spending_summary(transactions, statement_from="", statement_to=""):
+    debits = [t for t in transactions if t.get("type") == "DR" and (t.get("amount") or 0) > 0]
+    total_outflow = round_money(sum(t.get("amount", 0.0) for t in debits))
+
+    if total_outflow == 0 or not debits:
+        return {
+            "total_outflow": 0.0,
+            "investment_outflow": 0.0,
+            "pure_living_expenses": 0.0,
+            "daily_burn_rate": 0.0,
+            "total_debit_transactions": 0,
+            "top_category": None,
+            "categories": [],
+            "top_merchants": [],
+            "archetype_50_30_20": {
+                "needs": {"amount": 0.0, "percentage": 0.0},
+                "wants": {"amount": 0.0, "percentage": 0.0},
+                "investments": {"amount": 0.0, "percentage": 0.0},
+                "transfers": {"amount": 0.0, "percentage": 0.0}
+            }
+        }
+
+    cat_map = {}
+    merch_map = {}
+    unique_dates = set()
+
+    for t in debits:
+        cat_name = t.get("category") or "Other / Miscellaneous"
+        color = t.get("color") or "#94a3b8"
+        amt = float(t.get("amount", 0.0))
+        merch = t.get("merchant") or "Unknown"
+        d = t.get("date")
+        if d:
+            unique_dates.add(d)
+
+        if cat_name not in cat_map:
+            cat_map[cat_name] = {"name": cat_name, "amount": 0.0, "count": 0, "color": color}
+        cat_map[cat_name]["amount"] = round_money(cat_map[cat_name]["amount"] + amt)
+        cat_map[cat_name]["count"] += 1
+
+        if merch not in merch_map:
+            merch_map[merch] = {"name": merch, "amount": 0.0, "count": 0, "category": cat_name}
+        merch_map[merch]["amount"] = round_money(merch_map[merch]["amount"] + amt)
+        merch_map[merch]["count"] += 1
+
+    categories = []
+    for c in sorted(cat_map.values(), key=lambda x: x["amount"], reverse=True):
+        c["percentage"] = round((c["amount"] / total_outflow) * 100, 1)
+        categories.append(c)
+
+    top_category = {
+        "name": categories[0]["name"],
+        "amount": categories[0]["amount"],
+        "percentage": categories[0]["percentage"]
+    } if categories else None
+
+    top_merchants = sorted(merch_map.values(), key=lambda x: x["amount"], reverse=True)[:10]
+
+    inv_amt = cat_map.get("Investments & Wealth", {}).get("amount", 0.0)
+    pure_living = round_money(total_outflow - inv_amt)
+
+    num_days = 31
+    if unique_dates:
+        try:
+            dates = sorted([datetime.strptime(d.replace("-", "/"), "%d/%m/%Y" if len(d.split("/")[-1]) == 4 else "%d/%m/%y") for d in unique_dates if re.match(r"^\d{2}[/-]\d{2}[/-]\d{2,4}$", d)])
+            if dates and (dates[-1] - dates[0]).days > 0:
+                span = (dates[-1] - dates[0]).days + 1
+                num_days = 31 if 28 <= span <= 31 else max(1, span)
+        except Exception:
+            num_days = 31
+    daily_burn_rate = round_money(pure_living / (num_days or 31))
+
+    needs_amt = round_money(cat_map.get("Credit Card & Loans", {}).get("amount", 0.0) + cat_map.get("Utilities & Housing", {}).get("amount", 0.0))
+    wants_amt = round_money(cat_map.get("Food & Dining", {}).get("amount", 0.0) + cat_map.get("Travel & Commute", {}).get("amount", 0.0) + cat_map.get("Shopping & Services", {}).get("amount", 0.0) + cat_map.get("Other / Miscellaneous", {}).get("amount", 0.0))
+    transfers_amt = round_money(cat_map.get("Personal Transfers", {}).get("amount", 0.0))
+
+    archetype = {
+        "needs": {
+            "amount": needs_amt,
+            "percentage": round((needs_amt / total_outflow) * 100, 1) if total_outflow > 0 else 0.0
+        },
+        "wants": {
+            "amount": wants_amt,
+            "percentage": round((wants_amt / total_outflow) * 100, 1) if total_outflow > 0 else 0.0
+        },
+        "investments": {
+            "amount": inv_amt,
+            "percentage": round((inv_amt / total_outflow) * 100, 1) if total_outflow > 0 else 0.0
+        },
+        "transfers": {
+            "amount": transfers_amt,
+            "percentage": round((transfers_amt / total_outflow) * 100, 1) if total_outflow > 0 else 0.0
+        }
+    }
+
+    return {
+        "total_outflow": total_outflow,
+        "investment_outflow": inv_amt,
+        "pure_living_expenses": pure_living,
+        "daily_burn_rate": daily_burn_rate,
+        "total_debit_transactions": len(debits),
+        "top_category": top_category,
+        "categories": categories,
+        "top_merchants": top_merchants,
+        "archetype_50_30_20": archetype
+    }
+
 
 class HDFCBankParser:
     """Parser tailored for HDFC Bank savings/current account statements."""
 
     @classmethod
     def matches(cls, text):
+        if re.search(r"STANDARD\s*CHARTERED|SCBL0036|SUPERVALUE\s*SAVINGS", text, re.IGNORECASE):
+            return False
         markers = [
             r"HDFC\s*BANK",
             r"HDFC000\d{4}",
@@ -248,7 +512,6 @@ class HDFCBankParser:
             r"HDFC\s*Bank\s*Ltd",
         ]
         return any(re.search(p, text, re.IGNORECASE) for p in markers)
-
     def parse(self, text):
         lines = [line.strip() for line in text.splitlines() if line.strip()]
 
@@ -359,6 +622,36 @@ class HDFCBankParser:
                 table_lines.append(line)
         candidate_lines = table_lines if table_lines else lines
 
+        # Pre-extract summary balances for running balance baseline
+        opening_balance = None
+        closing_balance = None
+        summary_debits = None
+        summary_credits = None
+        m_hdfc_summary = re.search(
+            r"Opening\s*Balance\s+Debit\s*Amount\s+Credit\s*Amount\s+Closing\s*Balance\s*\n+\s*([\d,]+\.\d{2})\s+([\d,]+\.\d{2})\s+([\d,]+\.\d{2})\s+([\d,]+\.\d{2})",
+            text,
+            re.IGNORECASE
+        )
+        if m_hdfc_summary:
+            opening_balance = parse_amount(m_hdfc_summary.group(1))
+            summary_debits = parse_amount(m_hdfc_summary.group(2))
+            summary_credits = parse_amount(m_hdfc_summary.group(3))
+            closing_balance = parse_amount(m_hdfc_summary.group(4))
+
+        if closing_balance is None:
+            m_withdrawable = re.search(r"Total\s*Withdrawal\s*Balance(?:\*\*\*)?\s*:\s*([\d,]+\.\d{2})", text, re.IGNORECASE)
+            if m_withdrawable:
+                closing_balance = parse_amount(m_withdrawable.group(1))
+
+        if closing_balance is None:
+            summary_close_match = re.search(r"Closing\s*Balance\s*:\s*(?:Rs\.?|INR|₹)?\s*(-?\d[\d,]*(?:\.\d{1,2})?)", text, re.IGNORECASE)
+            if summary_close_match:
+                closing_balance = parse_amount(summary_close_match.group(1))
+        if opening_balance is None:
+            summary_open_match = re.search(r"Opening\s*Balance\s*:\s*(?:Rs\.?|INR|₹)?\s*(-?\d[\d,]*(?:\.\d{1,2})?)", text, re.IGNORECASE)
+            if summary_open_match:
+                opening_balance = parse_amount(summary_open_match.group(1))
+
         raw_tx_list = []
         curr_tx = None
         for line in candidate_lines:
@@ -379,10 +672,14 @@ class HDFCBankParser:
                     balance_raw = money_matches[-1].group(1)
                     closing_bal = parse_amount(balance_raw)
 
-                    amt = 0.0
-                    if len(money_matches) >= 2:
+                    wd_amt = 0.0
+                    dp_amt = 0.0
+                    if len(money_matches) >= 3:
+                        wd_amt = abs(parse_amount(money_matches[-3].group(1)) or 0.0)
+                        dp_amt = abs(parse_amount(money_matches[-2].group(1)) or 0.0)
+                    elif len(money_matches) == 2:
                         amt_raw = money_matches[-2].group(1)
-                        amt = abs(parse_amount(amt_raw) or 0.0)
+                        wd_amt = abs(parse_amount(amt_raw) or 0.0)
 
                     first_num_start = money_matches[0].start()
                     desc_part = remainder[:first_num_start].strip()
@@ -392,11 +689,14 @@ class HDFCBankParser:
                     if ref_no and ref_no in desc_part:
                         desc_part = re.sub(r"\s*" + re.escape(ref_no) + r"\s*$", "", desc_part).strip()
 
+                    tx_type = "DR" if wd_amt > 0 else ("CR" if dp_amt > 0 else "CR")
+                    amt = wd_amt if wd_amt > 0 else dp_amt
+
                     curr_tx = {
                         "date": tx_date,
                         "narration": desc_part if desc_part else "Transaction",
                         "ref_no": ref_no,
-                        "type": "CR",
+                        "type": tx_type,
                         "amount": round_money(amt),
                         "balance": round_money(closing_bal)
                     }
@@ -407,7 +707,7 @@ class HDFCBankParser:
             raw_tx_list.append(curr_tx)
 
         # Mathematical normalization using running balances:
-        prev_balance = None
+        prev_balance = opening_balance
         for tx in raw_tx_list:
             bal = tx["balance"]
             if prev_balance is not None and bal is not None:
@@ -430,36 +730,17 @@ class HDFCBankParser:
             if tx["amount"] > 0 or re.search(r"\bOPENING\b", tx["narration"], re.IGNORECASE):
                 transactions.append(tx)
 
-        # 7. Balances Synthesis
-        opening_balance = None
-        closing_balance = None
-        summary_debits = None
-        summary_credits = None
-        m_hdfc_summary = re.search(
-            r"Opening\s*Balance\s+Debit\s*Amount\s+Credit\s*Amount\s+Closing\s*Balance\s*\n+\s*([\d,]+\.\d{2})\s+([\d,]+\.\d{2})\s+([\d,]+\.\d{2})\s+([\d,]+\.\d{2})",
-            text,
-            re.IGNORECASE
-        )
-        if m_hdfc_summary:
-            opening_balance = parse_amount(m_hdfc_summary.group(1))
-            summary_debits = parse_amount(m_hdfc_summary.group(2))
-            summary_credits = parse_amount(m_hdfc_summary.group(3))
-            closing_balance = parse_amount(m_hdfc_summary.group(4))
-
-        if closing_balance is None:
-            m_withdrawable = re.search(r"Total\s*Withdrawal\s*Balance(?:\*\*\*)?\s*:\s*([\d,]+\.\d{2})", text, re.IGNORECASE)
-            if m_withdrawable:
-                closing_balance = parse_amount(m_withdrawable.group(1))
-
-
-        if closing_balance is None:
-            summary_close_match = re.search(r"Closing\s*Balance\s*:\s*(?:Rs\.?|INR|₹)?\s*(-?\d[\d,]*(?:\.\d{1,2})?)", text, re.IGNORECASE)
-            if summary_close_match:
-                closing_balance = parse_amount(summary_close_match.group(1))
-        if opening_balance is None:
-            summary_open_match = re.search(r"Opening\s*Balance\s*:\s*(?:Rs\.?|INR|₹)?\s*(-?\d[\d,]*(?:\.\d{1,2})?)", text, re.IGNORECASE)
-            if summary_open_match:
-                opening_balance = parse_amount(summary_open_match.group(1))
+        # Enrich transactions with merchant normalization, narration scrubbing, and spend categorization
+        for tx in transactions:
+            tx["narration"] = scrub_narration(tx.get("narration", ""))
+            tx["merchant"] = extract_merchant(tx["narration"])
+            if tx.get("type") == "DR":
+                cat, col = categorize_transaction(tx["narration"])
+                tx["category"] = cat
+                tx["color"] = col
+            else:
+                tx["category"] = "Income & Deposits"
+                tx["color"] = "#22c55e"
 
         # Derive from transactions if not found in summary
         if closing_balance is None and transactions:
@@ -471,7 +752,6 @@ class HDFCBankParser:
             if closing_balance is not None:
                 opening_balance = round_money(closing_balance - total_credits + total_debits)
             elif transactions:
-                # Approximate from first transaction
                 first_tx = transactions[0]
                 first_bal = first_tx.get("balance", 0.0)
                 first_amt = first_tx.get("amount", 0.0)
@@ -495,6 +775,7 @@ class HDFCBankParser:
             stmt_from = transactions[0].get("date", "")
 
         monthly_cashflow = synthesize_monthly_cashflow(transactions)
+        spending_summary = synthesize_spending_summary(transactions, stmt_from, stmt_to)
 
         account = {
             "account_number": acc_number or "HDFC-ACCOUNT-01",
@@ -514,9 +795,9 @@ class HDFCBankParser:
             "statement_date": stmt_date,
             "statement_period": {"from": stmt_from, "to": stmt_to},
             "monthly_cashflow": monthly_cashflow,
+            "spending_summary": spending_summary,
             "transactions": transactions,
         }
-
         return {
             "success": True,
             "source": "Bank Statement",
@@ -717,6 +998,18 @@ class StandardCharteredParser:
             prev_balance = bal
             transactions.append(tx)
 
+        # Enrich transactions with merchant normalization, narration scrubbing, and spend categorization
+        for tx in transactions:
+            tx["narration"] = scrub_narration(tx.get("narration", ""))
+            tx["merchant"] = extract_merchant(tx["narration"])
+            if tx.get("type") == "DR":
+                cat, col = categorize_transaction(tx["narration"])
+                tx["category"] = cat
+                tx["color"] = col
+            else:
+                tx["category"] = "Income & Deposits"
+                tx["color"] = "#22c55e"
+
         # Balances consolidation
         total_credits = round_money(sum(t["amount"] for t in transactions if t["type"] == "CR"))
         total_debits = round_money(sum(t["amount"] for t in transactions if t["type"] == "DR"))
@@ -748,6 +1041,7 @@ class StandardCharteredParser:
             stmt_from = transactions[0].get("date", "")
 
         monthly_cashflow = synthesize_monthly_cashflow(transactions)
+        spending_summary = synthesize_spending_summary(transactions, stmt_from, stmt_to)
 
         account = {
             "account_number": acc_number or "SCB-ACCOUNT-01",
@@ -767,6 +1061,7 @@ class StandardCharteredParser:
             "statement_date": stmt_date,
             "statement_period": {"from": stmt_from, "to": stmt_to},
             "monthly_cashflow": monthly_cashflow,
+            "spending_summary": spending_summary,
             "transactions": transactions,
         }
 
@@ -825,6 +1120,18 @@ class GenericBankParser:
                         "balance": round_money(closing_balance)
                     })
 
+        # Enrich transactions with merchant normalization, narration scrubbing, and spend categorization
+        for tx in transactions:
+            tx["narration"] = scrub_narration(tx.get("narration", ""))
+            tx["merchant"] = extract_merchant(tx["narration"])
+            if tx.get("type") == "DR":
+                cat, col = categorize_transaction(tx["narration"])
+                tx["category"] = cat
+                tx["color"] = col
+            else:
+                tx["category"] = "Income & Deposits"
+                tx["color"] = "#22c55e"
+
         total_credits = round_money(sum(t["amount"] for t in transactions if t["type"] == "CR"))
         total_debits = round_money(sum(t["amount"] for t in transactions if t["type"] == "DR"))
 
@@ -832,6 +1139,7 @@ class GenericBankParser:
             closing_balance = transactions[-1].get("balance", 0.0)
 
         monthly_cashflow = synthesize_monthly_cashflow(transactions)
+        spending_summary = synthesize_spending_summary(transactions)
 
         account = {
             "account_number": acc_number,
@@ -851,6 +1159,7 @@ class GenericBankParser:
             "statement_date": "",
             "statement_period": {"from": "", "to": ""},
             "monthly_cashflow": monthly_cashflow,
+            "spending_summary": spending_summary,
             "transactions": transactions,
         }
 
@@ -869,16 +1178,21 @@ def parse_bank_statement(pdf_path, password="", bank_hint="auto"):
     text = extract_pdf_text(pdf_path, password)
     hint_clean = (bank_hint or "auto").strip().lower()
 
-    if hint_clean in ("hdfc", "hdfc_bank", "hdfc bank") or (hint_clean == "auto" and HDFCBankParser.matches(text)):
-        parser = HDFCBankParser()
-        return parser.parse(text)
-    elif hint_clean in ("scb", "standard_chartered", "standard chartered", "scb_bank") or (hint_clean == "auto" and StandardCharteredParser.matches(text)):
+    if hint_clean in ("scb", "standard_chartered", "standard chartered", "scb_bank") or (hint_clean == "auto" and StandardCharteredParser.matches(text)):
         parser = StandardCharteredParser()
-        return parser.parse(text)
+        res = parser.parse(text)
+    elif hint_clean in ("hdfc", "hdfc_bank", "hdfc bank") or (hint_clean == "auto" and HDFCBankParser.matches(text)):
+        parser = HDFCBankParser()
+        res = parser.parse(text)
     else:
         parser = GenericBankParser()
-        return parser.parse(text, bank_hint=bank_hint)
+        res = parser.parse(text, bank_hint=bank_hint)
 
+    if res.get("success") and res.get("accounts"):
+        all_txs = [tx for acc in res["accounts"] for tx in acc.get("transactions", [])]
+        res["spending_summary"] = synthesize_spending_summary(all_txs)
+
+    return res
 
 def main():
     if len(sys.argv) < 2:

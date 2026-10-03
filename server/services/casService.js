@@ -616,8 +616,13 @@ export function mergeBankAccounts(portfolio = {}, bankData = {}) {
       transactions: Array.isArray(rawAccount.transactions) && rawAccount.transactions.length > 0
         ? rawAccount.transactions
         : (previous.transactions || []),
+      spending_summary: rawAccount.spending_summary || previous.spending_summary || null,
       imported_at: Date.now()
     });
+  }
+
+  if (bankData.spending_summary) {
+    nextPortfolio.spending_summary = bankData.spending_summary;
   }
 
   if (accountsByKey.size === 0) {

@@ -51,7 +51,8 @@ export default function PortfolioPage({
   const error = externalError !== undefined ? externalError : localError;
   const setError = setLocalError;
   // Tabs: 'stocks' | 'mutual_funds' | 'bonds' | 'analytics'
-  const [activeTab, setActiveTab] = useState(initialTab || 'stocks');
+  const [activeTab, setActiveTab] = useState(initialTab === 'bank-spend' ? 'bank' : (initialTab || 'stocks'));
+  const [bankView, setBankView] = useState(initialTab === 'bank-spend' ? 'spend' : 'accounts');
   // Chart toggle: 'value' | 'change_pct'
   const [chartMetric, setChartMetric] = useState('value');
   const [isBankModalOpen, setIsBankModalOpen] = useState(false);
@@ -59,7 +60,15 @@ export default function PortfolioPage({
   const isBankUploading = externalIsBankUploading !== undefined ? externalIsBankUploading : internalIsBankUploading;
   useEffect(() => {
     if (initialTab) {
-      setActiveTab(initialTab);
+      if (initialTab === 'bank-spend') {
+        setActiveTab('bank');
+        setBankView('spend');
+      } else {
+        setActiveTab(initialTab);
+        if (initialTab === 'bank') {
+          setBankView('accounts');
+        }
+      }
     }
   }, [initialTab]);
 
@@ -746,6 +755,7 @@ export default function PortfolioPage({
               onOpenUploadModal={() => setIsBankModalOpen(true)}
               isBankUploading={isBankUploading}
               onDeleteAccount={handleDeleteBank}
+              initialView={bankView}
             />
           )}
 

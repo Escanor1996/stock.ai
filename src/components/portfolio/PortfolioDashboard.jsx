@@ -711,7 +711,17 @@ export default function PortfolioDashboard({
 
             <div className="pt-2 border-t border-border/30 flex items-center justify-between text-[11px] text-muted-foreground">
               <span>Instant Access</span>
-              <span className="font-mono font-medium text-foreground">{bankPct.toFixed(1)}% share</span>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onNavigateToHoldings('bank-spend');
+                }}
+                className="font-semibold text-sky-600 hover:text-sky-700 dark:text-sky-400 inline-flex items-center gap-1 hover:underline z-10"
+                title="Open Spend Analyser"
+              >
+                <span>Spend Analyser &rarr;</span>
+              </button>
             </div>
           </div>
         )}

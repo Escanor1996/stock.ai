@@ -221,9 +221,25 @@ def test_hdfc_encrypted_parsing():
         assert "ARKA CHAKRABORTY" in acc.get("account_holder", ""), f"Account holder mismatch: {acc.get('account_holder')}"
         assert acc.get("closing_balance") == 185420.50, f"Closing balance mismatch: {acc.get('closing_balance')}"
         assert acc.get("ifsc") == "HDFC0001756", f"IFSC mismatch: {acc.get('ifsc')}"
-        assert len(acc.get("transactions", [])) >= 3, f"Expected at least 3 transactions, got {len(acc.get('transactions', []))}"
+        txs = acc.get("transactions", [])
+        assert len(txs) >= 3, f"Expected at least 3 transactions, got {len(txs)}"
         assert len(acc.get("monthly_cashflow", [])) >= 1, "Expected monthly cashflow synthesis"
-
+        
+        # Verify Spend Analyser metadata & classification
+        spending_summary = acc.get("spending_summary")
+        assert spending_summary is not None, "Expected spending_summary in account"
+        assert spending_summary.get("total_outflow") == 214579.50, f"Expected 214579.50 outflow, got {spending_summary.get('total_outflow')}"
+        assert spending_summary.get("investment_outflow") == 213000.00, f"Expected 213000 investment, got {spending_summary.get('investment_outflow')}"
+        assert spending_summary.get("pure_living_expenses") == 1579.50, f"Expected 1579.50 living, got {spending_summary.get('pure_living_expenses')}"
+        assert len(spending_summary.get("categories", [])) >= 2, "Expected at least 2 spending categories"
+        
+        swiggy_tx = next((t for t in txs if "SWIGGY" in t.get("narration", "").upper()), None)
+        assert swiggy_tx is not None, "Swiggy transaction missing"
+        assert swiggy_tx.get("category") == "Food & Dining", f"Expected Food & Dining, got {swiggy_tx.get('category')}"
+        
+        mf_tx = next((t for t in txs if "HDFC MF" in t.get("narration", "").upper()), None)
+        assert mf_tx is not None, "MF transaction missing"
+        assert mf_tx.get("category") == "Investments & Wealth", f"Expected Investments & Wealth, got {mf_tx.get('category')}"
         # 2. Test password casing variation (e.g. user entered lowercase "secretpass123")
         res_var = run_parser(hdfc_pdf, password="  SecretPass123  ", bank_hint="auto")
         assert res_var.get("success") is True, f"Failed with trimmed password: {res_var}"
@@ -285,10 +301,75 @@ def test_scb_encrypted_parsing():
         if os.path.exists(scb_pdf):
             os.remove(scb_pdf)
 
+def test_spend_classification_and_summary():
+    print("[TEST] Testing spend classification rules, merchant extraction, and 50/30/20 archetype...")
+    sys.path.insert(0, os.path.join(REPO_ROOT, "server", "services"))
+    from bank_parser import categorize_transaction, extract_merchant, scrub_narration, synthesize_spending_summary
+
+    # 1. Test merchant normalization
+    assert extract_merchant("UPI-Midtown Foods BL-Q880358672@ybl") == "Midtown Foods"
+    assert extract_merchant("UPI/657662479085/ GROWW INVEST TECH PRIVATE LIMITED/GROWW.RZP.BRK@VA") == "Groww Invest Tech"
+    assert extract_merchant("UPI/127451065925/ KUVERA RZP/AREVUK.RZPICCL3.CC@VALIDHDFC") == "Kuvera"
+    assert extract_merchant("UPI-PZ HDFC CC BILLPAY U-pzhdfcccbillpayupi@mpty") == "HDFC Credit Card Bill"
+    assert extract_merchant("UPI-Radius Synergies Int-myxenius.zkp@icici") == "Radius Synergies (Electricity)"
+    assert extract_merchant("UPI-SANCHAIKA CHAKRABORT-9007594247-2@ybl") == "Sanchaika Chakraborty"
+    assert extract_merchant("UPI/127262263797/ AISHA GUEST HOUSE /1000220325000323") == "Aisha Guest House"
+    assert extract_merchant("UPI/127551844098/ PAX INNOVATION ICT SERVICES PRIVATE LIMITED") == "Pax Innovation"
+
+    # 2. Test taxonomy classification
+    c1, col1 = categorize_transaction("UPI-GROWW INVEST TECH PV-groww.brk@validhdfc")
+    assert c1 == "Investments & Wealth" and col1 == "#10b981"
+
+    c2, col2 = categorize_transaction("UPI-PZ HDFC CC BILLPAY U-pzhdfcccbillpayupi")
+    assert c2 == "Credit Card & Loans" and col2 == "#8b5cf6"
+
+    c3, col3 = categorize_transaction("UPI-Midtown Foods BL-Q880358672@ybl")
+    assert c3 == "Food & Dining" and col3 == "#f59e0b"
+
+    c4, col4 = categorize_transaction("UPI-Radius Synergies Int-myxenius.zkp@icici")
+    assert c4 == "Utilities & Housing" and col4 == "#06b6d4"
+
+    c5, col5 = categorize_transaction("UPI-SANCHAIKA CHAKRABORT-9007594247-2@ybl")
+    assert c5 == "Personal Transfers" and col5 == "#3b82f6"
+
+    c6, col6 = categorize_transaction("UPI/127262263797/ AISHA GUEST HOUSE /1000220325000323")
+    assert c6 == "Travel & Commute" and col6 == "#f43f5e"
+
+    c7, col7 = categorize_transaction("UPI/127551844098/ PAX INNOVATION ICT SERVICES PRIVATE LIMITED")
+    assert c7 == "Shopping & Services" and col7 == "#64748b"
+
+    # 3. Test narration scrubbing
+    scrubbed = scrub_narration("UPI-Ember Crust-paytm.s2eum10@ pty-Payme nt from Phone Opening Balance : 150000.00 Limit : 500000")
+    assert "Opening Balance" not in scrubbed
+    assert "Limit" not in scrubbed
+    assert "Payment" in scrubbed
+
+    # 4. Test spending summary archetype synthesis
+    synthetic_txs = [
+        {"type": "DR", "amount": 100000.0, "category": "Investments & Wealth", "merchant": "Kuvera", "date": "01/09/2026"},
+        {"type": "DR", "amount": 50000.0, "category": "Credit Card & Loans", "merchant": "HDFC Credit Card Bill", "date": "05/09/2026"},
+        {"type": "DR", "amount": 25000.0, "category": "Food & Dining", "merchant": "Swiggy", "date": "10/09/2026"},
+        {"type": "DR", "amount": 10000.0, "category": "Utilities & Housing", "merchant": "Electricity Board", "date": "15/09/2026"},
+        {"type": "DR", "amount": 15000.0, "category": "Personal Transfers", "merchant": "Family Transfer", "date": "20/09/2026"},
+        {"type": "CR", "amount": 200000.0, "category": "Income & Deposits", "merchant": "Employer Salary", "date": "01/09/2026"},
+    ]
+    summary = synthesize_spending_summary(synthetic_txs)
+    assert summary["total_outflow"] == 200000.0
+    assert summary["investment_outflow"] == 100000.0
+    assert summary["pure_living_expenses"] == 100000.0
+    assert summary["total_debit_transactions"] == 5
+    assert summary["top_category"]["name"] == "Investments & Wealth"
+    assert summary["archetype_50_30_20"]["needs"]["amount"] == 60000.0
+    assert summary["archetype_50_30_20"]["wants"]["amount"] == 25000.0
+    assert summary["archetype_50_30_20"]["investments"]["amount"] == 100000.0
+    assert summary["archetype_50_30_20"]["transfers"]["amount"] == 15000.0
+    print("  ✓ Spend classification, merchant normalization, scrubbing, and 50/30/20 archetype validated.")
+
 
 if __name__ == "__main__":
     os.makedirs(os.path.dirname(os.path.abspath(__file__)), exist_ok=True)
     test_hdfc_encrypted_parsing()
     test_scb_unencrypted_parsing()
     test_scb_encrypted_parsing()
+    test_spend_classification_and_summary()
     print("\nAll bank parser unit tests passed!")

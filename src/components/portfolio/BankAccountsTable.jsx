@@ -16,19 +16,29 @@ import {
   TrendingDown,
   Building,
   CheckCircle2,
-  FileText
+  FileText,
+  PieChart as PieChartIcon
 } from 'lucide-react';
+import SpendAnalyser from './SpendAnalyser';
 
 export default function BankAccountsTable({
   bankAccounts = [],
   summary = {},
   onOpenUploadModal = () => {},
   isBankUploading = false,
-  onDeleteAccount = () => {}
+  onDeleteAccount = () => {},
+  initialView = 'accounts'
 }) {
+  const [viewMode, setViewMode] = useState(initialView || 'accounts');
+  const [selectedSpendAccount, setSelectedSpendAccount] = useState('all');
   const [expandedAccount, setExpandedAccount] = useState(null);
   const [txFilters, setTxFilters] = useState({}); // { [accountIndex]: { type: 'all' | 'cr' | 'dr', query: '' } }
 
+  React.useEffect(() => {
+    if (initialView) {
+      setViewMode(initialView);
+    }
+  }, [initialView]);
   const fmt = (n) => '₹' + Math.abs(n || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 });
 
   const totalBalance = useMemo(() => {
@@ -127,8 +137,79 @@ export default function BankAccountsTable({
     );
   }
 
+  if (viewMode === 'spend') {
+    return (
+      <div className="space-y-6">
+        {/* ── SUB-HEADER SEGMENTED SWITCHER ── */}
+        <div className="flex items-center justify-between">
+          <div className="inline-flex items-center gap-1 bg-muted/60 p-1 rounded-full border border-border/40 shadow-xs">
+            <button
+              type="button"
+              onClick={() => { setViewMode('accounts'); setSelectedSpendAccount('all'); }}
+              className={`px-3 py-1 text-xs font-semibold rounded-full transition-all ${
+                viewMode === 'accounts' ? 'bg-card text-foreground shadow-xs' : 'text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              Accounts Overview ({bankAccounts.length})
+            </button>
+            <button
+              type="button"
+              onClick={() => setViewMode('spend')}
+              className={`inline-flex items-center gap-1.5 px-3 py-1 text-xs font-semibold rounded-full transition-all ${
+                viewMode === 'spend' ? 'bg-card text-sky-600 dark:text-sky-400 shadow-xs' : 'text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              <PieChartIcon className="w-3.5 h-3.5" />
+              <span>Spend Analyser</span>
+            </button>
+          </div>
+        </div>
+
+        <SpendAnalyser
+          bankAccounts={bankAccounts}
+          onBackToAccounts={() => { setViewMode('accounts'); setSelectedSpendAccount('all'); }}
+          initialAccount={selectedSpendAccount}
+        />
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
+      {/* ── SUB-HEADER SEGMENTED SWITCHER ── */}
+      <div className="flex items-center justify-between">
+        <div className="inline-flex items-center gap-1 bg-muted/60 p-1 rounded-full border border-border/40 shadow-xs">
+          <button
+            type="button"
+            onClick={() => setViewMode('accounts')}
+            className={`px-3 py-1 text-xs font-semibold rounded-full transition-all ${
+              viewMode === 'accounts' ? 'bg-card text-foreground shadow-xs' : 'text-muted-foreground hover:text-foreground'
+            }`}
+          >
+            Accounts Overview ({bankAccounts.length})
+          </button>
+          <button
+            type="button"
+            onClick={() => { setSelectedSpendAccount('all'); setViewMode('spend'); }}
+            className={`inline-flex items-center gap-1.5 px-3 py-1 text-xs font-semibold rounded-full transition-all ${
+              viewMode === 'spend' ? 'bg-card text-sky-600 dark:text-sky-400 shadow-xs' : 'text-muted-foreground hover:text-foreground'
+            }`}
+          >
+            <PieChartIcon className="w-3.5 h-3.5" />
+            <span>Spend Analyser</span>
+          </button>
+        </div>
+
+        <button
+          type="button"
+          onClick={() => { setSelectedSpendAccount('all'); setViewMode('spend'); }}
+          className="inline-flex items-center gap-1.5 px-3 py-1 text-xs font-semibold rounded-full bg-muted/60 hover:bg-muted text-foreground transition-all border border-border/40 shadow-xs"
+        >
+          <PieChartIcon className="w-3.5 h-3.5 text-sky-600 dark:text-sky-400" />
+          <span>Analyse Spends</span>
+        </button>
+      </div>
+
       {/* ── SUMMARY HEADER CARD ── */}
       <div className="bg-card rounded-xl border border-border/40 p-5 space-y-4">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -151,6 +232,15 @@ export default function BankAccountsTable({
               <CheckCircle2 className="w-3 h-3 text-sky-600" />
               <span>Liquid Reserve • Instant Access</span>
             </span>
+            <button
+              type="button"
+              onClick={() => { setSelectedSpendAccount('all'); setViewMode('spend'); }}
+              className="inline-flex items-center gap-1.5 px-3 py-1 text-xs font-semibold text-foreground bg-muted hover:bg-muted/80 border border-border rounded-full transition-all duration-150 active:scale-95 shadow-xs"
+              title="Open Spend Analyser"
+            >
+              <PieChartIcon className="w-3.5 h-3.5 text-sky-600 dark:text-sky-400" />
+              <span>Spend Analyser</span>
+            </button>
             <button
               type="button"
               onClick={onOpenUploadModal}
@@ -288,14 +378,29 @@ export default function BankAccountsTable({
                   </div>
 
                   {transactions.length > 0 && (
-                    <button
-                      type="button"
-                      onClick={() => setExpandedAccount(isExpanded ? null : idx)}
-                      className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
-                      title={isExpanded ? 'Collapse transaction ledger' : 'Expand transaction ledger'}
-                    >
-                      {isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
-                    </button>
+                    <>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setSelectedSpendAccount(acc.account_number || acc.masked_account_number || 'all');
+                          setViewMode('spend');
+                        }}
+                        className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium bg-muted/60 hover:bg-muted text-muted-foreground hover:text-sky-600 transition-colors border border-border/40"
+                        title="Analyze spending for this account"
+                      >
+                        <PieChartIcon className="w-3.5 h-3.5 text-sky-600" />
+                        <span className="hidden sm:inline">Analyze</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setExpandedAccount(isExpanded ? null : idx)}
+                        className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+                        title={isExpanded ? 'Collapse transaction ledger' : 'Expand transaction ledger'}
+                      >
+                        {isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                      </button>
+                    </>
                   )}
 
                   <button
