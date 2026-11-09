@@ -42,9 +42,10 @@ class ErrorBoundary extends React.Component {
 }
 
 export default function App() {
-  const [currentSymbol, setCurrentSymbol] = useState('E2E');
-  const [activeTab, setActiveTab] = useState('dashboard'); // 'dashboard', 'holdings', 'watchlist', 'analysis'
-  const [holdingsTab, setHoldingsTab] = useState('stocks');
+  const urlParams = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : null;
+  const [currentSymbol, setCurrentSymbol] = useState(() => (urlParams?.get('symbol') || 'E2E').toUpperCase());
+  const [activeTab, setActiveTab] = useState(() => urlParams?.get('tab') || 'dashboard'); // 'dashboard', 'holdings', 'watchlist', 'analysis'
+  const [holdingsTab, setHoldingsTab] = useState(() => urlParams?.get('subtab') || 'stocks');
   const portfolio = usePortfolio();
   const [watchlist, setWatchlist] = useState(['E2E', 'TMCV', 'INFY', 'ZOMATO', 'NETWEB', 'NVDA']);
   const [isSearchModalOpen, setIsSearchModalOpen] = useState(false);

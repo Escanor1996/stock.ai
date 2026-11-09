@@ -204,6 +204,8 @@ app.post('/api/portfolio/parse', upload.single('file'), async (req, res) => {
       error_type: err.errorType || 'PARSE_ERROR',
       error: err.message || 'Failed to process CAS statement'
     });
+  } finally {
+    if (req.file?.path) fs.unlink(req.file.path, () => {});
   }
 });
 
@@ -269,6 +271,10 @@ app.post('/api/portfolio/epfo-passbook', upload.any(), async (req, res) => {
       error_type: err.errorType || 'EPFO_PARSE_ERROR',
       error: err.message || 'Failed to process EPFO passbook(s)'
     });
+  } finally {
+    for (const f of uploadedFiles) {
+      if (f?.path) fs.unlink(f.path, () => {});
+    }
   }
 });
 // DELETE /api/portfolio/epfo-account/:memberId — Remove a specific EPFO member account
@@ -379,6 +385,10 @@ app.post('/api/portfolio/bank-statement', upload.any(), async (req, res) => {
       error_type: err.errorType || 'BANK_PARSE_ERROR',
       error: err.message || 'Failed to process bank statement(s)'
     });
+  } finally {
+    for (const f of uploadedFiles) {
+      if (f?.path) fs.unlink(f.path, () => {});
+    }
   }
 });
 
@@ -461,6 +471,8 @@ app.post('/api/portfolio/broker-statement', upload.single('file'), async (req, r
       success: false,
       error: err.message || 'Failed to process broker spreadsheet'
     });
+  } finally {
+    if (req.file?.path) fs.unlink(req.file.path, () => {});
   }
 });
 

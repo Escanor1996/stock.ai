@@ -43,8 +43,9 @@ export default function PortfolioDashboard({
   onParseStatement = () => {}
 }) {
   // Privacy mask toggle (Wealthfolio signature eye icon)
+  const urlParams = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : null;
   const [isPrivate, setIsPrivate] = useState(() => {
-    return localStorage.getItem('stock_ai_privacy_mode') === 'true';
+    return urlParams?.get('privacy') === 'true' || localStorage.getItem('stock_ai_privacy_mode') === 'true';
   });
 
   const togglePrivacy = () => {
