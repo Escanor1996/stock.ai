@@ -1,9 +1,30 @@
-import 'dotenv/config';
+import dotenv from 'dotenv';
+import { fileURLToPath } from 'url';
+import path, { dirname } from 'path';
+import fs from 'fs';
+import os from 'os';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const envPath = process.env.DOTENV_CONFIG_PATH || path.join(__dirname, '..', '.env');
+dotenv.config({ path: envPath });
+
+// Also check ~/.config/stock-ai/.env if GEMINI_API_KEY is not in process.env
+const userConfigEnv = path.join(os.homedir(), '.config', 'stock-ai', '.env');
+if (!process.env.GEMINI_API_KEY && fs.existsSync(userConfigEnv)) {
+  dotenv.config({ path: userConfigEnv });
+}
 import express from 'express';
 import cors from 'cors';
 import { getStockData, getHistoricalPrices, searchStocks } from './services/stockService.js';
-import { generateAIScore, generateAIVerdict, generateAIAnalysis } from './services/aiService.js';
+import { generateAIScore, generateAIVerdict, generateAIAnalysis, generateAIStory } from './services/aiService.js';
+import { parseCASFile, parseBrokerSpreadsheet, parseEPFOPassbook, parseBankStatement, mergeBrokerPrices, mergeEPFOAccounts, mergeBankAccounts, refreshPortfolioSummary, computePortfolioAnalytics, getSamplePortfolio, exportToCSV, refreshPortfolioLiveQuotes } from './services/casService.js';
+import * as db from './db.js';
+import multer from 'multer';
 
+const upload = multer({
+  dest: path.join(os.tmpdir(), 'stock_ai_cas_uploads'),
+  limits: { fileSize: 25 * 1024 * 1024 } // 25MB max
+});
 const app = express();
 const port = process.env.PORT || 3001;
 
@@ -79,6 +100,19 @@ app.get('/api/stock/:ticker/verdict', async (req, res) => {
   }
 });
 
+// ── GET /api/stock/:ticker/story — Decoupled AI Company Story & Capabilities
+app.get('/api/stock/:ticker/story', async (req, res) => {
+  const { ticker } = req.params;
+  const force = req.query.refresh === 'true' || req.query.force === 'true';
+  try {
+    const data = await generateAIStory(ticker, force);
+    res.json(data);
+  } catch (err) {
+    console.error(`Error generating AI story for ${ticker}:`, err);
+    res.status(500).json({ error: 'Failed to generate AI story: ' + err.message });
+  }
+});
+
 // ── GET /api/search?q=query — Search stocks
 app.get('/api/search', async (req, res) => {
   const { q } = req.query;
@@ -132,6 +166,523 @@ app.get('/api/scrape', async (req, res) => {
   } catch (err) {
     console.error(`Legacy scrape error for ${ticker}:`, err);
     res.status(500).json({ error: 'Failed to fetch stock data' });
+  }
+});
+
+// ── Portfolio Endpoints ───────────────────────────────────────────────────────
+
+// POST /api/portfolio/parse — Parse uploaded CAS PDF (CDSL / NSDL / CAMS)
+app.post('/api/portfolio/parse', upload.single('file'), async (req, res) => {
+  if (!req.file) {
+    return res.status(400).json({ success: false, error: 'No PDF file uploaded' });
+  }
+
+  const password = req.body.password || '';
+  const enrich = req.query.enrich !== 'false';
+
+  try {
+    let result = await parseCASFile(req.file.path, password, enrich);
+    if (req.body.portfolio) {
+      const currentPortfolio = typeof req.body.portfolio === 'string'
+        ? JSON.parse(req.body.portfolio)
+        : req.body.portfolio;
+      const existingEPFOAccounts = currentPortfolio?.epfo_accounts || currentPortfolio?.meta?.epfo_accounts;
+      if (Array.isArray(existingEPFOAccounts) && existingEPFOAccounts.length > 0) {
+        result = mergeEPFOAccounts(result, { accounts: existingEPFOAccounts });
+      }
+      const existingBankAccounts = currentPortfolio?.bank_accounts || currentPortfolio?.meta?.bank_accounts;
+      if (Array.isArray(existingBankAccounts) && existingBankAccounts.length > 0) {
+        result = mergeBankAccounts(result, { accounts: existingBankAccounts });
+      }
+    }
+    res.json(result);
+  } catch (err) {
+    console.error('CAS parse error:', err.message);
+    const statusCode = err.errorType === 'INCORRECT_PASSWORD' ? 401 : 422;
+    res.status(statusCode).json({
+      success: false,
+      error_type: err.errorType || 'PARSE_ERROR',
+      error: err.message || 'Failed to process CAS statement'
+    });
+  } finally {
+    if (req.file?.path) fs.unlink(req.file.path, () => {});
+  }
+});
+
+// POST /api/portfolio/epfo-passbook — Parse and merge user-exported official EPFO passbook PDFs (single or multiple)
+app.post('/api/portfolio/epfo-passbook', upload.any(), async (req, res) => {
+  const uploadedFiles = Array.isArray(req.files) && req.files.length > 0
+    ? req.files
+    : (req.file ? [req.file] : []);
+
+  if (uploadedFiles.length === 0) {
+    return res.status(400).json({ success: false, error: 'No EPFO passbook PDF uploaded' });
+  }
+
+  try {
+    let currentPortfolio = req.body.portfolio
+      ? (typeof req.body.portfolio === 'string' ? JSON.parse(req.body.portfolio) : req.body.portfolio)
+      : (db.getPortfolioHoldings() || {});
+
+    const allAccounts = [];
+    const errors = [];
+
+    for (const file of uploadedFiles) {
+      try {
+        const epfoData = await parseEPFOPassbook(file.path);
+        if (Array.isArray(epfoData.accounts)) {
+          allAccounts.push(...epfoData.accounts);
+        }
+      } catch (fileErr) {
+        console.error(`Error parsing passbook ${file.originalname}:`, fileErr.message);
+        errors.push({ file: file.originalname, error: fileErr.message });
+      }
+    }
+
+    if (allAccounts.length === 0) {
+      const firstError = errors[0]?.error || 'Failed to parse EPFO passbook(s). Ensure valid official EPFO passbook PDFs are uploaded.';
+      return res.status(422).json({
+        success: false,
+        error_type: 'EPFO_PARSE_ERROR',
+        error: firstError,
+        details: errors
+      });
+    }
+
+    const combinedData = {
+      success: true,
+      source: 'EPFO Member Passbook',
+      accounts: allAccounts
+    };
+
+    const portfolio = mergeEPFOAccounts(currentPortfolio, combinedData);
+    db.savePortfolioHoldings(portfolio, portfolio.meta || {});
+
+    res.json({
+      success: true,
+      epfo_data: combinedData,
+      portfolio,
+      errors: errors.length > 0 ? errors : undefined
+    });
+  } catch (err) {
+    console.error('EPFO passbook merge error:', err.message);
+    res.status(422).json({
+      success: false,
+      error_type: err.errorType || 'EPFO_PARSE_ERROR',
+      error: err.message || 'Failed to process EPFO passbook(s)'
+    });
+  } finally {
+    for (const f of uploadedFiles) {
+      if (f?.path) fs.unlink(f.path, () => {});
+    }
+  }
+});
+// DELETE /api/portfolio/epfo-account/:memberId — Remove a specific EPFO member account
+app.delete('/api/portfolio/epfo-account/:memberId', (req, res) => {
+  const memberId = req.params.memberId?.toUpperCase();
+  if (!memberId) {
+    return res.status(400).json({ success: false, error: 'Member ID is required' });
+  }
+
+  try {
+    const portfolio = db.getPortfolioHoldings();
+    if (!portfolio || !Array.isArray(portfolio.epfo_accounts)) {
+      return res.status(404).json({ success: false, error: 'No EPFO accounts found' });
+    }
+
+    const filtered = portfolio.epfo_accounts.filter(
+      acc => String(acc.member_id).toUpperCase() !== memberId
+    );
+
+    portfolio.epfo_accounts = filtered;
+    if (portfolio.meta) {
+      portfolio.meta.epfo_accounts = filtered;
+    }
+
+    db.savePortfolioHoldings(portfolio, portfolio.meta || {});
+    const updated = db.getPortfolioHoldings();
+
+    res.json({
+      success: true,
+      message: `Account ${memberId} removed successfully`,
+      portfolio: updated
+    });
+  } catch (err) {
+    console.error('Delete EPFO account error:', err);
+    res.status(500).json({ success: false, error: 'Failed to delete EPFO account' });
+  }
+});
+
+// POST /api/portfolio/bank-statement — Parse and merge bank account statement PDFs (HDFC, Standard Chartered, Generic)
+app.post('/api/portfolio/bank-statement', upload.any(), async (req, res) => {
+  const uploadedFiles = Array.isArray(req.files) && req.files.length > 0
+    ? req.files
+    : (req.file ? [req.file] : []);
+
+  if (uploadedFiles.length === 0) {
+    return res.status(400).json({ success: false, error: 'No bank statement PDF uploaded' });
+  }
+
+  const password = req.body.password || '';
+  const bankType = req.body.bank_type || 'auto';
+
+  try {
+    let currentPortfolio = req.body.portfolio
+      ? (typeof req.body.portfolio === 'string' ? JSON.parse(req.body.portfolio) : req.body.portfolio)
+      : (db.getPortfolioHoldings() || {});
+
+    const allAccounts = [];
+    const errors = [];
+
+    for (const file of uploadedFiles) {
+      try {
+        const bankData = await parseBankStatement(file.path, password, bankType);
+        if (Array.isArray(bankData.accounts)) {
+          allAccounts.push(...bankData.accounts);
+        }
+      } catch (fileErr) {
+        console.error(`Error parsing bank statement ${file.originalname}:`, fileErr.message);
+        errors.push({
+          file: file.originalname,
+          error: fileErr.message,
+          errorType: fileErr.errorType || 'BANK_PARSE_ERROR'
+        });
+      }
+    }
+
+    if (allAccounts.length === 0) {
+      const pwdError = errors.find(e => e.errorType === 'INCORRECT_PASSWORD');
+      const firstError = pwdError?.error || errors[0]?.error || 'Failed to parse bank statement(s). Check password or file format.';
+      const statusCode = pwdError ? 401 : 422;
+      return res.status(statusCode).json({
+        success: false,
+        error_type: pwdError ? 'INCORRECT_PASSWORD' : 'BANK_PARSE_ERROR',
+        error: firstError,
+        details: errors
+      });
+    }
+
+    const combinedData = {
+      success: true,
+      source: 'Bank Statement',
+      accounts: allAccounts
+    };
+
+    const portfolio = mergeBankAccounts(currentPortfolio, combinedData);
+    db.savePortfolioHoldings(portfolio, portfolio.meta || {});
+
+    res.json({
+      success: true,
+      bank_data: combinedData,
+      portfolio,
+      errors: errors.length > 0 ? errors : undefined
+    });
+  } catch (err) {
+    console.error('Bank statement merge error:', err.message);
+    const statusCode = err.errorType === 'INCORRECT_PASSWORD' ? 401 : 422;
+    res.status(statusCode).json({
+      success: false,
+      error_type: err.errorType || 'BANK_PARSE_ERROR',
+      error: err.message || 'Failed to process bank statement(s)'
+    });
+  } finally {
+    for (const f of uploadedFiles) {
+      if (f?.path) fs.unlink(f.path, () => {});
+    }
+  }
+});
+
+// DELETE /api/portfolio/bank-account/:accountNumber — Remove a specific bank account
+app.delete('/api/portfolio/bank-account/:accountNumber', (req, res) => {
+  const rawAcc = req.params.accountNumber;
+  if (!rawAcc) {
+    return res.status(400).json({ success: false, error: 'Account number is required' });
+  }
+  const target = String(rawAcc).toUpperCase().replace(/\s+/g, '');
+
+  try {
+    const portfolio = db.getPortfolioHoldings();
+    if (!portfolio || !Array.isArray(portfolio.bank_accounts)) {
+      return res.status(404).json({ success: false, error: 'No bank accounts found' });
+    }
+
+    const filtered = portfolio.bank_accounts.filter(acc => {
+      const accNum = String(acc.account_number || '').toUpperCase().replace(/\s+/g, '');
+      const maskedNum = String(acc.masked_account_number || '').toUpperCase().replace(/\s+/g, '');
+      return accNum !== target && maskedNum !== target;
+    });
+
+    portfolio.bank_accounts = filtered;
+    if (portfolio.meta) {
+      portfolio.meta.bank_accounts = filtered;
+    }
+
+    refreshPortfolioSummary(portfolio);
+    portfolio.analytics = computePortfolioAnalytics(portfolio);
+
+    db.savePortfolioHoldings(portfolio, portfolio.meta || {});
+    const updated = db.getPortfolioHoldings();
+
+    res.json({
+      success: true,
+      message: `Bank account ${rawAcc} removed successfully`,
+      portfolio: updated
+    });
+  } catch (err) {
+    console.error('Delete bank account error:', err);
+    res.status(500).json({ success: false, error: 'Failed to delete bank account' });
+  }
+});
+
+// POST /api/portfolio/broker-statement — Parse and merge broker spreadsheet (Groww, Zerodha, Upstox, etc.)
+app.post('/api/portfolio/broker-statement', upload.single('file'), async (req, res) => {
+  if (!req.file) {
+    return res.status(400).json({ success: false, error: 'No spreadsheet file uploaded' });
+  }
+
+  try {
+    const brokerData = await parseBrokerSpreadsheet(req.file.path);
+    
+    let enrichedPortfolio = null;
+    if (req.body.portfolio) {
+      try {
+        const portfolioPayload = typeof req.body.portfolio === 'string' ? JSON.parse(req.body.portfolio) : req.body.portfolio;
+        enrichedPortfolio = mergeBrokerPrices(portfolioPayload, brokerData);
+        if (enrichedPortfolio) {
+          try {
+            db.savePortfolioHoldings(enrichedPortfolio, enrichedPortfolio.meta || {});
+          } catch (saveErr) {
+            console.warn('Could not auto-save enriched portfolio to DB:', saveErr.message);
+          }
+        }
+      } catch (err) {
+        console.warn('Could not merge broker prices server-side:', err.message);
+      }
+    }
+
+    res.json({
+      success: true,
+      broker_data: brokerData,
+      portfolio: enrichedPortfolio
+    });
+  } catch (err) {
+    console.error('Broker statement parse error:', err.message);
+    res.status(422).json({
+      success: false,
+      error: err.message || 'Failed to process broker spreadsheet'
+    });
+  } finally {
+    if (req.file?.path) fs.unlink(req.file.path, () => {});
+  }
+});
+
+// GET /api/portfolio/sample — Load instant demo portfolio for evaluation
+app.get('/api/portfolio/sample', (req, res) => {
+  try {
+    const sample = getSamplePortfolio();
+    res.json(sample);
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// POST /api/portfolio/save — Persist portfolio to local SQLite
+app.post('/api/portfolio/save', (req, res) => {
+  const payload = req.body;
+  if (!payload || (!payload.holdings && !payload.stocks && !payload.mutual_funds && !payload.epfo_accounts && !payload.bank_accounts && !Array.isArray(payload))) {
+    return res.status(400).json({ success: false, error: 'Valid portfolio payload is required' });
+  }
+
+  try {
+    db.savePortfolioHoldings(payload, payload.meta || {});
+    res.json({ success: true, message: 'Portfolio saved successfully' });
+  } catch (err) {
+    console.error('Save portfolio error:', err);
+    res.status(500).json({ success: false, error: 'Failed to save portfolio' });
+  }
+});
+
+// GET /api/portfolio — Retrieve saved portfolio from local SQLite
+app.get('/api/portfolio', (req, res) => {
+  try {
+    const data = db.getPortfolioHoldings();
+    res.json({ success: true, data });
+  } catch (err) {
+    console.error('Get portfolio error:', err);
+    res.status(500).json({ success: false, error: 'Failed to retrieve portfolio' });
+  }
+});
+
+// GET /api/portfolio/scores - Retrieve all persisted AI & Algorithm scores
+app.get('/api/portfolio/scores', (req, res) => {
+  try {
+    const scores = db.getAllAIScores();
+    res.json({ success: true, scores });
+  } catch (err) {
+    console.error('Get portfolio scores error:', err);
+    res.status(500).json({ success: false, error: 'Failed to retrieve portfolio scores' });
+  }
+});
+
+// DELETE /api/portfolio — Clear saved portfolio
+app.delete('/api/portfolio', (req, res) => {
+  try {
+    db.clearPortfolioHoldings();
+    res.json({ success: true, message: 'Portfolio cleared successfully' });
+  } catch (err) {
+    console.error('Clear portfolio error:', err);
+    res.status(500).json({ success: false, error: 'Failed to clear portfolio' });
+  }
+});
+
+// POST /api/portfolio/refresh-quotes — Refresh active stocks and ETFs with latest live CMP from Yahoo Finance
+app.post('/api/portfolio/refresh-quotes', async (req, res) => {
+  try {
+    const payload = (req.body && (req.body.stocks || req.body.holdings)) ? req.body : db.getPortfolioHoldings();
+    const result = await refreshPortfolioLiveQuotes(payload);
+    res.json({ success: true, updatedCount: result.updatedCount, data: result.portfolio });
+  } catch (err) {
+    console.error('Refresh quotes error:', err);
+    res.status(500).json({ success: false, error: 'Failed to refresh live quotes: ' + err.message });
+  }
+});
+
+// POST /api/portfolio/export/csv — Generate downloadable CSV
+app.post('/api/portfolio/export/csv', (req, res) => {
+  const payload = req.body;
+  if (!payload || (!payload.holdings && !payload.stocks && !payload.mutual_funds && !payload.epfo_accounts && !payload.bank_accounts && !Array.isArray(payload))) {
+    return res.status(400).json({ success: false, error: 'Holdings or portfolio payload is required' });
+  }
+
+  try {
+    const csv = exportToCSV(payload, payload.summary);
+    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader('Content-Disposition', 'attachment; filename="stock_ai_portfolio.csv"');
+    res.send(csv);
+  } catch (err) {
+    console.error('Export CSV error:', err);
+    res.status(500).json({ success: false, error: 'Failed to generate CSV' });
+  }
+});
+
+// ── Settings Endpoints (Gemini API Key Management) ──────────────────────
+app.get('/api/settings', (req, res) => {
+  const apiKey = process.env.GEMINI_API_KEY || '';
+  const hasApiKey = Boolean(apiKey && apiKey.trim().length > 0);
+  const maskedKey = hasApiKey
+    ? `${apiKey.slice(0, 6)}...${apiKey.slice(-4)}`
+    : '';
+
+  res.json({
+    success: true,
+    hasApiKey,
+    apiKeyMasked: maskedKey,
+    engine: hasApiKey ? 'Gemini 3.5 Flash' : 'stock.ai Algorithm (Offline Heuristic)',
+    envPath: fs.existsSync(envPath) ? envPath : (fs.existsSync(userConfigEnv) ? userConfigEnv : envPath)
+  });
+});
+
+app.post('/api/settings', (req, res) => {
+  let cleanKey = (req.body.apiKey || '').trim();
+
+  // If the key passed is masked (contains ellipsis or bullets), keep the existing configured key
+  if (cleanKey.includes('...') || cleanKey.includes('••••')) {
+    cleanKey = (process.env.GEMINI_API_KEY || '').trim();
+  }
+
+  process.env.GEMINI_API_KEY = cleanKey;
+
+  const targetEnv = process.env.DOTENV_CONFIG_PATH || path.join(__dirname, '..', '.env');
+  try {
+    let existingContent = '';
+    if (fs.existsSync(targetEnv)) {
+      existingContent = fs.readFileSync(targetEnv, 'utf8');
+    }
+
+    const lines = existingContent.split('\n');
+    let found = false;
+    const newLines = lines.map(line => {
+      if (line.trim().startsWith('GEMINI_API_KEY=')) {
+        found = true;
+        return `GEMINI_API_KEY=${cleanKey}`;
+      }
+      return line;
+    });
+    if (!found) {
+      newLines.push(`GEMINI_API_KEY=${cleanKey}`);
+    }
+    fs.writeFileSync(targetEnv, newLines.filter(Boolean).join('\n') + '\n', 'utf8');
+
+    res.json({
+      success: true,
+      message: cleanKey ? 'Gemini API key saved successfully' : 'API key cleared. System will use offline heuristic.',
+      hasApiKey: Boolean(cleanKey),
+      engine: cleanKey ? 'Gemini 3.5 Flash' : 'stock.ai Algorithm (Offline Heuristic)'
+    });
+  } catch (err) {
+    console.error('Failed to write .env file:', err);
+    res.status(500).json({ success: false, error: 'Failed to write settings file: ' + err.message });
+  }
+});
+
+app.post('/api/settings/test', async (req, res) => {
+  let keyToTest = (req.body.apiKey || '').trim();
+
+  // If empty or masked with ellipsis/bullets, test the existing configured environment key
+  if (!keyToTest || keyToTest.includes('...') || keyToTest.includes('••••')) {
+    keyToTest = (process.env.GEMINI_API_KEY || '').trim();
+  }
+
+  if (!keyToTest) {
+    return res.status(400).json({ success: false, error: 'No API key provided or configured to test' });
+  }
+
+  try {
+    // Try standard Google AI Studio models endpoint first
+    let response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(keyToTest)}`);
+
+    // If models endpoint failed, try generateContent
+    if (!response.ok) {
+      response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=${encodeURIComponent(keyToTest)}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: 'Respond with OK' }] }]
+        })
+      });
+    }
+
+    // Fallback to interactions endpoint
+    if (!response.ok) {
+      response = await fetch('https://generativelanguage.googleapis.com/v1beta/interactions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-goog-api-key': keyToTest,
+          'Api-Revision': '2026-05-20'
+        },
+        body: JSON.stringify({
+          model: 'gemini-3.5-flash',
+          input: 'Respond with OK'
+        })
+      });
+    }
+
+    if (!response.ok) {
+      const errText = await response.text();
+      return res.status(response.status).json({
+        success: false,
+        error: `Google API rejected the key (${response.status}): ${errText.slice(0, 150)}`
+      });
+    }
+
+    res.json({
+      success: true,
+      message: 'Connection verified! Multi-model Gemini fallback pipeline is active.'
+    });
+  } catch (err) {
+    console.error('API key test error:', err);
+    res.status(500).json({ success: false, error: 'Failed to connect to Google API: ' + err.message });
   }
 });
 

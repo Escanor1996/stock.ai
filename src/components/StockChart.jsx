@@ -23,9 +23,24 @@ export default function StockChart({ symbol, currentPrice }) {
       try {
         const hist = await fetchHistorical(symbol, range);
         if (active) {
-          // Add current price as the very last data point if it's the 1D/1W view
-          // But usually the history endpoint already has the latest close.
-          setData(hist);
+          let series = Array.isArray(hist) ? hist.map(item => ({ ...item })) : [];
+          if (currentPrice != null && currentPrice > 0 && series.length > 0) {
+            const todayStr = new Date().toISOString().slice(0, 10);
+            const last = series[series.length - 1];
+            if (last.date === todayStr) {
+              last.close = currentPrice;
+            } else {
+              series.push({
+                date: todayStr,
+                open: last.close || currentPrice,
+                high: Math.max(last.high || currentPrice, currentPrice),
+                low: Math.min(last.low || currentPrice, currentPrice),
+                close: currentPrice,
+                volume: 0
+              });
+            }
+          }
+          setData(series);
         }
       } catch (err) {
         console.error('Failed to load history:', err);
@@ -48,7 +63,7 @@ export default function StockChart({ symbol, currentPrice }) {
 
   // Determine trend color based on the first and last data points
   const isPositive = data.length > 1 ? data[data.length - 1].close >= data[0].close : true;
-  const strokeColor = isPositive ? '#10b981' : '#f43f5e'; // emerald or rose
+  const strokeColor = isPositive ? '#4d6d13' : '#af3029';
   const fillColor = isPositive ? 'url(#colorPositive)' : 'url(#colorNegative)';
 
   // Calculate absolute and percentage change for the selected range
@@ -62,32 +77,38 @@ export default function StockChart({ symbol, currentPrice }) {
   }
 
   return (
-    <div className="glass-panel rounded-2xl p-6 border border-slate-800 space-y-4">
+    <div className="glass-card p-6 space-y-4">
       {/* Header & Controls */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-800 pb-4">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-border/40 pb-4">
         <div>
-          <div className="flex items-center gap-2">
-            <Activity className="w-5 h-5 text-emerald-400" />
-            <h3 className="text-base font-bold text-slate-100 tracking-wide">Historical Price Chart</h3>
+          <div className="flex items-center gap-2 flex-wrap">
+            <Activity className="w-5 h-5 text-success" />
+            <h3 className="text-base font-bold text-foreground tracking-wide">Historical Price Chart</h3>
+            {currentPrice > 0 && (
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-mono font-bold bg-success/10 text-success border border-success/30">
+                <span className="w-1.5 h-1.5 rounded-full bg-success animate-pulse" />
+                <span>Live CMP: ₹{Number(currentPrice).toLocaleString('en-IN', { maximumFractionDigits: 2 })}</span>
+              </span>
+            )}
           </div>
           {data.length > 1 && (
-            <div className={`text-sm font-bold font-mono mt-1 ${isPositive ? 'text-emerald-400' : 'text-rose-400'}`}>
+            <div className={`text-sm font-bold font-mono mt-1 ${isPositive ? 'text-success' : 'text-destructive'}`}>
               {isPositive ? '+' : ''}₹{changeAbs.toFixed(2)} ({isPositive ? '+' : ''}{changePct.toFixed(2)}%)
-              <span className="text-xs text-slate-500 font-sans font-medium ml-2">in past {ranges.find(r => r.val === range)?.label}</span>
+              <span className="text-xs text-muted-foreground font-sans font-medium ml-2">in past {ranges.find(r => r.val === range)?.label}</span>
             </div>
           )}
         </div>
 
         {/* Range Selector */}
-        <div className="flex items-center bg-slate-900/90 p-1 rounded-xl border border-slate-800 self-start sm:self-auto">
+        <div className="flex items-center bg-muted/60 p-1 rounded-full border border-border/40 self-start sm:self-auto">
           {ranges.map((r) => (
             <button
               key={r.val}
               onClick={() => setRange(r.val)}
               className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
                 range === r.val
-                  ? 'bg-emerald-500 text-slate-950 shadow-md shadow-emerald-500/20'
-                  : 'text-slate-400 hover:text-slate-200'
+                  ? 'bg-foreground text-background shadow-xs'
+                  : 'text-muted-foreground hover:text-foreground'
               }`}
             >
               {r.label}
@@ -99,8 +120,8 @@ export default function StockChart({ symbol, currentPrice }) {
       {/* Chart Area */}
       <div className="w-full h-72 relative">
         {loading && (
-          <div className="absolute inset-0 z-10 bg-slate-950/50 flex items-center justify-center rounded-xl">
-            <Loader2 className="w-6 h-6 text-emerald-500 animate-spin" />
+          <div className="absolute inset-0 z-10 bg-background/60 flex items-center justify-center rounded-xl">
+            <Loader2 className="w-6 h-6 text-muted-foreground animate-spin" />
           </div>
         )}
         
@@ -109,36 +130,36 @@ export default function StockChart({ symbol, currentPrice }) {
             <AreaChart data={data} margin={{ top: 10, right: 0, left: -20, bottom: 0 }}>
               <defs>
                 <linearGradient id="colorPositive" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="#10b981" stopOpacity={0.3} />
-                  <stop offset="95%" stopColor="#10b981" stopOpacity={0} />
+                  <stop offset="5%" stopColor="#4d6d13" stopOpacity={0.3} />
+                  <stop offset="95%" stopColor="#4d6d13" stopOpacity={0} />
                 </linearGradient>
                 <linearGradient id="colorNegative" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="#f43f5e" stopOpacity={0.3} />
-                  <stop offset="95%" stopColor="#f43f5e" stopOpacity={0} />
+                  <stop offset="5%" stopColor="#af3029" stopOpacity={0.3} />
+                  <stop offset="95%" stopColor="#af3029" stopOpacity={0} />
                 </linearGradient>
               </defs>
-              <CartesianGrid strokeDasharray="3 3" stroke="rgba(255, 255, 255, 0.05)" vertical={false} />
+              <CartesianGrid strokeDasharray="3 3" stroke="rgba(0, 0, 0, 0.06)" vertical={false} />
               <XAxis 
                 dataKey="date" 
-                tick={{ fill: '#94a3b8', fontSize: 11 }} 
+                tick={{ fill: '#6f6e69', fontSize: 11 }} 
                 tickMargin={10}
                 minTickGap={30}
               />
               <YAxis 
                 domain={['auto', 'auto']} 
-                tick={{ fill: '#94a3b8', fontSize: 11 }}
+                tick={{ fill: '#6f6e69', fontSize: 11 }}
                 tickFormatter={(val) => `₹${val.toLocaleString()}`}
               />
               <Tooltip
                 contentStyle={{
-                  backgroundColor: '#0f172a',
-                  borderColor: '#334155',
+                  backgroundColor: 'hsl(51, 59%, 95%)',
+                  borderColor: 'hsl(51, 21%, 88%)',
                   borderRadius: '8px',
-                  color: '#f8fafc',
+                  color: '#100f0f',
                   fontSize: '12px'
                 }}
-                itemStyle={{ color: '#fff', fontWeight: 'bold' }}
-                labelStyle={{ color: '#94a3b8', marginBottom: '4px' }}
+                itemStyle={{ color: '#100f0f', fontWeight: 'bold' }}
+                labelStyle={{ color: '#6f6e69', marginBottom: '4px' }}
                 formatter={(value) => [`₹${value.toLocaleString()}`, 'Close Price']}
               />
               <Area 
@@ -151,7 +172,7 @@ export default function StockChart({ symbol, currentPrice }) {
             </AreaChart>
           </ResponsiveContainer>
         ) : !loading && (
-          <div className="w-full h-full flex items-center justify-center text-slate-500 text-sm">
+          <div className="w-full h-full flex items-center justify-center text-muted-foreground text-sm">
             No historical data available for this range.
           </div>
         )}

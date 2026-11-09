@@ -1,10 +1,11 @@
 import * as db from '../db.js';
-
+import { getStockData, normalizeTicker } from './stockService.js';
 // ── 1. Decoupled AI 360° Score Engine ────────────────────────────────────────
 
 export async function generateAIScore(ticker, force = false) {
+  const t = normalizeTicker(ticker);
   if (!force) {
-    const cached = db.getAIAnalysis(ticker);
+    const cached = db.getAIAnalysis(t);
     if (cached && cached.score != null) {
       return {
         score: cached.score,
@@ -14,14 +15,29 @@ export async function generateAIScore(ticker, force = false) {
     }
   }
 
-  const stock = db.getStock(ticker);
-  const quote = db.getQuote(ticker);
-  const fund = db.getFundamentals(ticker);
-  const quarters = db.getQuarterlies(ticker);
+  let stock = db.getStock(t);
+  let quote = db.getQuote(t);
+  let fund = db.getFundamentals(t);
+  let quarters = db.getQuarterlies(t);
 
+  // If data missing in DB, automatically pre-fetch it
   if (!stock || !quote || !fund) {
-    throw new Error('Data missing for AI score generation');
+    try {
+      await getStockData(t);
+      stock = db.getStock(t);
+      quote = db.getQuote(t);
+      fund = db.getFundamentals(t);
+      quarters = db.getQuarterlies(t);
+    } catch (e) {
+      console.error(`Auto-fetch stock data failed for ${t}:`, e.message);
+    }
   }
+
+  // Provide safe fallback objects so AI analysis never hard-crashes on missing/partial vendor feeds
+  stock = stock || { ticker: t, name: t, sector: 'Equity', industry: 'Diversified' };
+  quote = quote || { price: 0, change: 0, change_percent: 0 };
+  fund = fund || { ticker: t, pe_ratio: null, pb_ratio: null, roe: null, roce: null, debt_to_equity: null };
+  quarters = quarters || [];
 
   let result = null;
   if (process.env.GEMINI_API_KEY) {
@@ -38,11 +54,20 @@ export async function generateAIScore(ticker, force = false) {
 
   // Persist score independently
   db.upsertAIScore({
-    ticker,
+    ticker: t,
     score: result.score,
     parameterScores: result.parameterScores,
     engine: result.engine
   });
+  const origTicker = ticker ? ticker.toUpperCase().trim() : '';
+  if (origTicker && origTicker !== t) {
+    db.upsertAIScore({
+      ticker: origTicker,
+      score: result.score,
+      parameterScores: result.parameterScores,
+      engine: result.engine
+    });
+  }
 
   return result;
 }
@@ -50,8 +75,9 @@ export async function generateAIScore(ticker, force = false) {
 // ── 2. Decoupled Fin-LLM 360° Verdict Engine ─────────────────────────────────
 
 export async function generateAIVerdict(ticker, force = false) {
+  const t = normalizeTicker(ticker);
   if (!force) {
-    const cached = db.getAIAnalysis(ticker);
+    const cached = db.getAIAnalysis(t);
     if (cached && cached.verdict) {
       return {
         verdict: cached.verdict,
@@ -64,14 +90,29 @@ export async function generateAIVerdict(ticker, force = false) {
     }
   }
 
-  const stock = db.getStock(ticker);
-  const quote = db.getQuote(ticker);
-  const fund = db.getFundamentals(ticker);
-  const quarters = db.getQuarterlies(ticker);
+  let stock = db.getStock(t);
+  let quote = db.getQuote(t);
+  let fund = db.getFundamentals(t);
+  let quarters = db.getQuarterlies(t);
 
+  // If data missing in DB, automatically pre-fetch it
   if (!stock || !quote || !fund) {
-    throw new Error('Data missing for AI verdict generation');
+    try {
+      await getStockData(t);
+      stock = db.getStock(t);
+      quote = db.getQuote(t);
+      fund = db.getFundamentals(t);
+      quarters = db.getQuarterlies(t);
+    } catch (e) {
+      console.error(`Auto-fetch stock data failed for ${t}:`, e.message);
+    }
   }
+
+  // Provide safe fallback objects so AI analysis never hard-crashes on missing/partial vendor feeds
+  stock = stock || { ticker: t, name: t, sector: 'Equity', industry: 'Diversified' };
+  quote = quote || { price: 0, change: 0, change_percent: 0 };
+  fund = fund || { ticker: t, pe_ratio: null, pb_ratio: null, roe: null, roce: null, debt_to_equity: null };
+  quarters = quarters || [];
 
   let result = null;
   if (process.env.GEMINI_API_KEY) {
@@ -88,7 +129,7 @@ export async function generateAIVerdict(ticker, force = false) {
 
   // Persist verdict independently
   db.upsertAIVerdict({
-    ticker,
+    ticker: t,
     verdict: result.verdict,
     bullPoints: result.bullPoints,
     bearPoints: result.bearPoints,
@@ -96,6 +137,96 @@ export async function generateAIVerdict(ticker, force = false) {
     governanceNotes: result.governanceNotes,
     engine: result.engine
   });
+  const origTicker = ticker ? ticker.toUpperCase().trim() : '';
+  if (origTicker && origTicker !== t) {
+    db.upsertAIVerdict({
+      ticker: origTicker,
+      verdict: result.verdict,
+      bullPoints: result.bullPoints,
+      bearPoints: result.bearPoints,
+      futurePoints: result.futurePoints,
+      governanceNotes: result.governanceNotes,
+      engine: result.engine
+    });
+  }
+
+  return result;
+}
+
+// ── 3. Decoupled AI Story Engine ─────────────────────────────────────────────
+
+export async function generateAIStory(ticker, force = false) {
+  const t = normalizeTicker(ticker);
+  if (!force) {
+    const cached = db.getAIAnalysis(t);
+    if (cached && cached.story) {
+      return {
+        story: cached.story,
+        storyTags: cached.storyTags || [],
+        storyEndMarkets: cached.storyEndMarkets || [],
+        storyWhatTheyDo: cached.storyWhatTheyDo || [],
+        engine: cached.storyEngine || cached.engine || 'stock.ai Algorithm'
+      };
+    }
+  }
+
+  let stock = db.getStock(t);
+  let quote = db.getQuote(t);
+  let fund = db.getFundamentals(t);
+  let quarters = db.getQuarterlies(t);
+
+  // If data missing in DB, automatically pre-fetch it
+  if (!stock || !quote || !fund) {
+    try {
+      await getStockData(t);
+      stock = db.getStock(t);
+      quote = db.getQuote(t);
+      fund = db.getFundamentals(t);
+      quarters = db.getQuarterlies(t);
+    } catch (e) {
+      console.error(`Auto-fetch stock data failed for ${t}:`, e.message);
+    }
+  }
+
+  // Provide safe fallback objects so AI analysis never hard-crashes
+  stock = stock || { ticker: t, name: t, sector: 'Equity', industry: 'Diversified' };
+  quote = quote || { price: 0, change: 0, change_percent: 0 };
+  fund = fund || { ticker: t, pe_ratio: null, pb_ratio: null, roe: null, roce: null, debt_to_equity: null };
+  quarters = quarters || [];
+
+  let result = null;
+  if (process.env.GEMINI_API_KEY) {
+    try {
+      result = await callGeminiStoryAPI(stock, quote, fund, quarters);
+    } catch (e) {
+      console.error('Gemini Story API failed, using heuristic story engine:', e.message);
+    }
+  }
+
+  if (!result) {
+    result = computeHeuristicStory(stock, quote, fund, quarters);
+  }
+
+  // Persist story independently
+  db.upsertAIStory({
+    ticker: t,
+    story: result.story,
+    storyTags: result.storyTags,
+    storyEndMarkets: result.storyEndMarkets,
+    storyWhatTheyDo: result.storyWhatTheyDo,
+    engine: result.engine
+  });
+  const origTicker = ticker ? ticker.toUpperCase().trim() : '';
+  if (origTicker && origTicker !== t) {
+    db.upsertAIStory({
+      ticker: origTicker,
+      story: result.story,
+      storyTags: result.storyTags,
+      storyEndMarkets: result.storyEndMarkets,
+      storyWhatTheyDo: result.storyWhatTheyDo,
+      engine: result.engine
+    });
+  }
 
   return result;
 }
@@ -103,15 +234,17 @@ export async function generateAIVerdict(ticker, force = false) {
 // ── Combined Legacy Entry ───────────────────────────────────────────────────
 
 export async function generateAIAnalysis(ticker, force = false) {
-  const [scoreResult, verdictResult] = await Promise.all([
+  const [scoreResult, verdictResult, storyResult] = await Promise.all([
     generateAIScore(ticker, force),
-    generateAIVerdict(ticker, force)
+    generateAIVerdict(ticker, force),
+    generateAIStory(ticker, force)
   ]);
 
   return {
     ...scoreResult,
     ...verdictResult,
-    engine: verdictResult.engine || scoreResult.engine
+    ...storyResult,
+    engine: storyResult.engine || verdictResult.engine || scoreResult.engine
   };
 }
 
@@ -120,6 +253,124 @@ export function getSavedAIAnalysis(ticker) {
 }
 
 // ── Gemini Specialized Prompts ──────────────────────────────────────────────
+
+/**
+ * Executes LLM request with generous 90-second timeout.
+ * Mirrors stock-ai-android: tries Google Interactions API (gemini-3.5-flash) first,
+ * falling back to multi-model generateContent API (gemini-3.5-flash, gemini-3.6-flash,
+ * gemini-flash-lite-latest, gemini-3.8-flash) before heuristic fallback.
+ */
+export async function callLlmWithFallback(prompt, apiKey = process.env.GEMINI_API_KEY) {
+  if (!apiKey || !apiKey.trim()) {
+    throw new Error('GEMINI_API_KEY is not configured');
+  }
+  const cleanKey = apiKey.trim();
+
+  // Attempt 1: Google Generative Language Interactions API (gemini-3.5-flash)
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 90000);
+
+    const resp = await fetch('https://generativelanguage.googleapis.com/v1beta/interactions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-goog-api-key': cleanKey,
+        'Api-Revision': '2026-05-20'
+      },
+      body: JSON.stringify({
+        model: 'gemini-3.5-flash',
+        input: prompt
+      }),
+      signal: controller.signal
+    });
+    clearTimeout(timeout);
+
+    if (resp.ok) {
+      const data = await resp.json();
+      const outputStep = data.steps?.find(s => s.type === 'model_output');
+      const text = outputStep?.content?.[0]?.text;
+      if (text && text.trim().length > 0) {
+        return { text: text.trim(), engine: 'Gemini 3.5 Flash' };
+      }
+    } else {
+      const errText = await resp.text().catch(() => '');
+      console.warn(`Interactions API response code ${resp.status}: ${errText.slice(0, 150)}`);
+    }
+  } catch (err) {
+    console.warn(`Interactions API error (${err.message}), trying generateContent fallbacks...`);
+  }
+
+  // Multi-tier fallback on generateContent across reliable models
+  const fallbackModels = ['gemini-3.5-flash', 'gemini-3.6-flash', 'gemini-flash-lite-latest', 'gemini-3.8-flash'];
+  let lastError = null;
+
+  for (const model of fallbackModels) {
+    try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 90000);
+
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(cleanKey)}`;
+      const resp = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-goog-api-key': cleanKey
+        },
+        body: JSON.stringify({
+          contents: [
+            {
+              parts: [{ text: prompt }]
+            }
+          ],
+          generationConfig: {
+            responseMimeType: 'application/json'
+          }
+        }),
+        signal: controller.signal
+      });
+      clearTimeout(timeout);
+
+      if (resp.ok) {
+        const data = await resp.json();
+        const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+        if (text && text.trim().length > 0) {
+          const engineLabel = model === 'gemini-3.5-flash'
+            ? 'Gemini 3.5 Flash'
+            : model === 'gemini-3.6-flash'
+              ? 'Gemini 3.6 Flash'
+              : model === 'gemini-flash-lite-latest'
+                ? 'Gemini Flash Lite'
+                : 'Gemini 3.8 Flash';
+          return { text: text.trim(), engine: engineLabel };
+        }
+      } else {
+        const errText = await resp.text().catch(() => '');
+        console.warn(`generateContent for ${model} returned code ${resp.status}: ${errText.slice(0, 150)}`);
+        lastError = new Error(`generateContent for ${model} returned ${resp.status}: ${errText.slice(0, 100)}`);
+      }
+    } catch (err) {
+      console.warn(`generateContent for ${model} error: ${err.message}`);
+      lastError = err;
+    }
+  }
+
+  throw lastError || new Error('All Gemini live fallback endpoints failed');
+}
+
+function parseJsonFromText(rawText) {
+  let clean = rawText.replace(/```json/gi, '').replace(/```/g, '').trim();
+  try {
+    return JSON.parse(clean);
+  } catch (err) {
+    const firstBrace = clean.indexOf('{');
+    const lastBrace = clean.lastIndexOf('}');
+    if (firstBrace !== -1 && lastBrace > firstBrace) {
+      return JSON.parse(clean.slice(firstBrace, lastBrace + 1));
+    }
+    throw err;
+  }
+}
 
 async function callGeminiScoreAPI(stock, quote, fund, quarters) {
   const prompt = `
@@ -147,30 +398,21 @@ async function callGeminiScoreAPI(stock, quote, fund, quarters) {
     }
   `;
 
-  const response = await fetch('https://generativelanguage.googleapis.com/v1beta/interactions', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-goog-api-key': process.env.GEMINI_API_KEY,
-      'Api-Revision': '2026-05-20'
-    },
-    body: JSON.stringify({
-      model: 'gemini-3.5-flash',
-      input: prompt
-    })
-  });
-
-  if (!response.ok) {
-    const errText = await response.text();
-    throw new Error(`API error ${response.status}: ${errText}`);
+  const { text, engine } = await callLlmWithFallback(prompt);
+  const result = parseJsonFromText(text);
+  const score = Math.max(10, Math.min(99, Math.round(Number(result.score) || 75)));
+  const parameterScores = {};
+  if (result.parameterScores && typeof result.parameterScores === 'object') {
+    for (const [k, v] of Object.entries(result.parameterScores)) {
+      parameterScores[k] = Math.max(0, Math.min(100, Math.round(Number(v) || 70)));
+    }
   }
-  const data = await response.json();
-  const outputStep = data.steps.find(s => s.type === 'model_output');
-  const rawText = outputStep.content[0].text;
-  const cleanText = rawText.replace(/```json/g, '').replace(/```/g, '').trim();
-  const result = JSON.parse(cleanText);
-  result.engine = 'Gemini 3.5 Flash';
-  return result;
+
+  return {
+    score,
+    parameterScores,
+    engine
+  };
 }
 
 async function callGeminiVerdictAPI(stock, quote, fund, quarters) {
@@ -203,31 +445,70 @@ async function callGeminiVerdictAPI(stock, quote, fund, quarters) {
     }
   `;
 
-  const response = await fetch('https://generativelanguage.googleapis.com/v1beta/interactions', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-goog-api-key': process.env.GEMINI_API_KEY,
-      'Api-Revision': '2026-05-20'
-    },
-    body: JSON.stringify({
-      model: 'gemini-3.5-flash',
-      input: prompt
-    })
-  });
+  const { text, engine } = await callLlmWithFallback(prompt);
+  const result = parseJsonFromText(text);
 
-  if (!response.ok) {
-    const errText = await response.text();
-    throw new Error(`API error ${response.status}: ${errText}`);
-  }
-  const data = await response.json();
-  const outputStep = data.steps.find(s => s.type === 'model_output');
-  const rawText = outputStep.content[0].text;
-  const cleanText = rawText.replace(/```json/g, '').replace(/```/g, '').trim();
-  const result = JSON.parse(cleanText);
-  result.engine = 'Gemini 3.5 Flash';
-  return result;
+  return {
+    verdict: typeof result.verdict === 'string' ? result.verdict : '',
+    governanceNotes: typeof result.governanceNotes === 'string' ? result.governanceNotes : '',
+    bullPoints: Array.isArray(result.bullPoints) ? result.bullPoints.map(String) : [],
+    bearPoints: Array.isArray(result.bearPoints) ? result.bearPoints.map(String) : [],
+    futurePoints: Array.isArray(result.futurePoints) ? result.futurePoints.map(String) : [],
+    engine
+  };
 }
+
+async function callGeminiStoryAPI(stock, quote, fund, quarters) {
+  const prompt = `
+    You are a senior institutional equity research analyst. Synthesize "THE STORY" for ${stock.name} (${stock.ticker}), an Indian company.
+    
+    Data:
+    - Sector: ${stock.sector || 'N/A'}, Industry: ${stock.industry || 'N/A'}
+    - Price: ₹${quote.price} (Market Cap: ${quote.market_cap ? '₹' + quote.market_cap + ' Cr' : 'N/A'})
+    - P/E: ${fund.pe_ratio || 'N/A'}x, P/B: ${fund.pb_ratio || 'N/A'}x, D/E: ${fund.debt_to_equity != null ? fund.debt_to_equity : 'N/A'}
+    - ROE: ${fund.roe || 'N/A'}%, ROCE: ${fund.roce || 'N/A'}%
+    - Recent Quarters: ${quarters.slice(-4).map(q => `${q.quarter}: Rev ₹${q.revenue} Cr, PAT ₹${q.pat} Cr`).join('; ')}
+
+    Return STRICT JSON only matching this schema:
+    {
+      "story": "<Deep, comprehensive institutional narrative answering: 1) What the company actually does and primary revenue segments (include revenue % share if known). 2) Core profit drivers and unit economics / depreciation / utilization dynamics. 3) Capex roadmap, incoming capacity / new technology pipelines, and emerging strategic partnerships or client wins. Write 1 to 2 rich, concrete paragraphs.>",
+      "tags": [
+        "#Tag1",
+        "#Tag2",
+        "#Tag3",
+        "#Tag4",
+        "#Tag5",
+        "#Tag6"
+      ],
+      "endMarkets": [
+        "<Specific customer or market segment 1>",
+        "<Specific customer or market segment 2>",
+        "<Specific customer or market segment 3>",
+        "<Specific customer or market segment 4>"
+      ],
+      "whatTheyDo": [
+        {
+          "title": "<CAPABILITY NAME IN UPPERCASE>",
+          "description": "<Specific operational detail, unit count, order win, or technology partnership.>"
+        }
+      ]
+    }
+  `;
+
+  const { text, engine } = await callLlmWithFallback(prompt);
+  const result = parseJsonFromText(text);
+
+  return {
+    story: typeof result.story === 'string' ? result.story.trim() : '',
+    storyTags: Array.isArray(result.tags) ? result.tags.map(t => String(t).startsWith('#') ? String(t) : `#${t}`) : [],
+    storyEndMarkets: Array.isArray(result.endMarkets) ? result.endMarkets.map(String) : [],
+    storyWhatTheyDo: Array.isArray(result.whatTheyDo)
+      ? result.whatTheyDo.map(item => typeof item === 'object' ? { title: String(item.title || '').toUpperCase(), description: String(item.description || '') } : { title: 'CAPABILITY', description: String(item) })
+      : [],
+    engine
+  };
+}
+
 
 // ── Heuristic Scoring & Verdict Implementations ─────────────────────────────
 
@@ -345,6 +626,59 @@ function computeHeuristicVerdict(stock, quote, fund, quarters) {
     bullPoints,
     bearPoints,
     futurePoints,
+    engine: 'stock.ai Algorithm'
+  };
+}
+
+function computeHeuristicStory(stock, quote, fund, quarters) {
+  const name = stock.name || stock.ticker;
+  const sector = stock.sector || 'General';
+  const industry = stock.industry || 'Diversified Commercial Operations';
+  const roe = fund.roe ? `ROE of ${fund.roe}%` : 'disciplined capital returns';
+  const roce = fund.roce ? `ROCE of ${fund.roce}%` : 'strong capital efficiency';
+
+  const story = `${name} operates as a key enterprise player within the ${sector} sector (${industry}), delivering specialized products and services tailored to domestic Indian and expanding cross-border markets. The business model generates revenue through core contract execution and long-term client engagements, with profitability anchored by high operational capacity utilization and disciplined capital allocation yielding ${roce} and ${roe}. Management continues to direct capital expenditures toward capacity expansion, indigenization, and digital technology modernization to scale throughput and strengthen structural economic moats over the next 12 to 24 months.`;
+
+  const tags = [
+    `#${(stock.ticker || 'India').replace(/[^a-zA-Z0-9]/g, '')}`,
+    `#${(sector || 'Enterprise').replace(/[^a-zA-Z0-9]/g, '')}`,
+    '#CapexExpansion',
+    '#MakeInIndia',
+    '#MarketLeader',
+    '#SecularGrowth'
+  ];
+
+  const endMarkets = [
+    'Domestic Enterprise Clients',
+    'Public Sector & Infrastructure',
+    'Tier-1 Commercial Partners',
+    'Export & Regional Markets'
+  ];
+
+  const whatTheyDo = [
+    {
+      title: 'CORE ENTERPRISE DELIVERY',
+      description: `Primary operating division generating the dominant share of recurring revenue across ${industry}.`
+    },
+    {
+      title: 'CAPACITY & RUNWAY EXPANSION',
+      description: `Ongoing capital investment in infrastructure modernization and localized delivery to serve growing order books.`
+    },
+    {
+      title: 'STRATEGIC CLIENT PARTNERSHIPS',
+      description: `Long-term commercial framework agreements with domestic and multinational enterprise customers.`
+    },
+    {
+      title: 'VALUE-ADDED SPECIALIZATION',
+      description: `High-margin capability lines designed to expand operating EBITDA margins and enhance competitive differentiation.`
+    }
+  ];
+
+  return {
+    story,
+    storyTags: tags,
+    storyEndMarkets: endMarkets,
+    storyWhatTheyDo: whatTheyDo,
     engine: 'stock.ai Algorithm'
   };
 }

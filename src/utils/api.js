@@ -38,6 +38,13 @@ export async function fetchAIVerdict(ticker, force = true) {
   return response.json();
 }
 
+export async function fetchAIStory(ticker, force = true) {
+  const t = ticker.toUpperCase();
+  const response = await fetch(`/api/stock/${encodeURIComponent(t)}/story?refresh=${force}`);
+  if (!response.ok) throw new Error('AI story generation failed');
+  return response.json();
+}
+
 export async function fetchAIAnalysis(ticker, force = true) {
   const t = ticker.toUpperCase();
   const response = await fetch(`/api/stock/${encodeURIComponent(t)}/analysis?refresh=${force}`);
@@ -182,6 +189,12 @@ function normalizeForUI(data) {
     futurePoints: hasAI ? (data.aiAnalysis.futurePoints || []) : [],
     parameterScores: hasAI ? (data.aiAnalysis.parameterScores || {}) : {},
     governanceNotes: hasAI ? (data.aiAnalysis.governanceNotes || '') : '',
+    hasAIStory: Boolean(data.aiAnalysis?.story),
+    story: data.aiAnalysis?.story || null,
+    storyTags: data.aiAnalysis?.storyTags || [],
+    storyEndMarkets: data.aiAnalysis?.storyEndMarkets || [],
+    storyWhatTheyDo: data.aiAnalysis?.storyWhatTheyDo || [],
+    storyEngine: data.aiAnalysis?.storyEngine || null,
     peers: [],
 
     lastUpdated: data.lastUpdated,
@@ -228,4 +241,235 @@ function buildBearPoints(d) {
   if (d.debtToEquity != null && d.debtToEquity > 1.5) points.push(`Elevated debt-to-equity ratio of ${d.debtToEquity}.`);
   if (points.length === 0) points.push('No major red flags identified from available data.');
   return points;
+}
+
+// ── Portfolio API ────────────────────────────────────────────────────────────
+
+export async function uploadCASFile(file, password = '', enrich = true, currentPortfolio = null) {
+  const formData = new FormData();
+  formData.append('file', file);
+  formData.append('password', password);
+  if (currentPortfolio) {
+    formData.append('portfolio', JSON.stringify(currentPortfolio));
+  }
+
+  const response = await fetch(`/api/portfolio/parse?enrich=${enrich}`, {
+    method: 'POST',
+    body: formData,
+  });
+
+  const result = await response.json();
+  if (!response.ok || !result.success) {
+    const err = new Error(result.error || result.message || 'Failed to parse CAS statement');
+    err.errorType = result.error_type;
+    throw err;
+  }
+
+  return result;
+}
+
+export async function uploadBrokerStatement(file, currentPortfolio = null) {
+  const formData = new FormData();
+  formData.append('file', file);
+  if (currentPortfolio) {
+    formData.append('portfolio', JSON.stringify(currentPortfolio));
+  }
+
+  const response = await fetch('/api/portfolio/broker-statement', {
+    method: 'POST',
+    body: formData,
+  });
+
+  const result = await response.json();
+  if (!response.ok || !result.success) {
+    throw new Error(result.error || 'Failed to process broker spreadsheet');
+  }
+
+  return result;
+}
+
+export async function uploadEPFOPassbook(files, currentPortfolio = null) {
+  const formData = new FormData();
+  const fileList = Array.isArray(files)
+    ? files
+    : (files instanceof FileList ? Array.from(files) : (files ? [files] : []));
+
+  for (const file of fileList) {
+    formData.append('files', file);
+  }
+  if (fileList.length > 0) {
+    formData.append('file', fileList[0]);
+  }
+
+  if (currentPortfolio) {
+    formData.append('portfolio', JSON.stringify(currentPortfolio));
+  }
+
+  const response = await fetch('/api/portfolio/epfo-passbook', {
+    method: 'POST',
+    body: formData,
+  });
+  const result = await response.json();
+  if (!response.ok || !result.success) {
+    const err = new Error(result.error || 'Failed to process EPFO passbook');
+    err.errorType = result.error_type;
+    throw err;
+  }
+  return result;
+}
+export async function deleteEPFOAccount(memberId) {
+  const response = await fetch(`/api/portfolio/epfo-account/${encodeURIComponent(memberId)}`, {
+    method: 'DELETE',
+  });
+  const result = await response.json();
+  if (!response.ok || !result.success) {
+    throw new Error(result.error || 'Failed to delete EPFO account');
+  }
+  return result;
+}
+
+export async function uploadBankStatement(files, password = '', bankType = 'auto', currentPortfolio = null) {
+  const fileList = Array.isArray(files)
+    ? files
+    : (files instanceof FileList ? Array.from(files) : [files]);
+  const formData = new FormData();
+  for (const file of fileList) {
+    formData.append('files', file);
+  }
+  if (fileList.length > 0) {
+    formData.append('file', fileList[0]);
+  }
+  if (password) {
+    formData.append('password', password);
+  }
+  if (bankType) {
+    formData.append('bank_type', bankType);
+  }
+  if (currentPortfolio) {
+    formData.append('portfolio', JSON.stringify(currentPortfolio));
+  }
+
+  const response = await fetch('/api/portfolio/bank-statement', {
+    method: 'POST',
+    body: formData,
+  });
+  const result = await response.json();
+  if (!response.ok || !result.success) {
+    const err = new Error(result.error || 'Failed to process bank statement');
+    err.errorType = result.error_type;
+    throw err;
+  }
+  return result;
+}
+
+export async function deleteBankAccount(accountNumber) {
+  const response = await fetch(`/api/portfolio/bank-account/${encodeURIComponent(accountNumber)}`, {
+    method: 'DELETE',
+  });
+  const result = await response.json();
+  if (!response.ok || !result.success) {
+    throw new Error(result.error || 'Failed to delete bank account');
+  }
+  return result;
+}
+
+export async function fetchSamplePortfolio() {
+  const response = await fetch('/api/portfolio/sample');
+  if (!response.ok) throw new Error('Failed to load sample portfolio');
+  return response.json();
+}
+
+export async function savePortfolio(portfolio, meta = {}) {
+  const payload = Array.isArray(portfolio)
+    ? portfolio
+    : {
+      ...portfolio,
+      meta: {
+        ...(portfolio?.meta || {}),
+        ...meta
+      }
+    };
+  const response = await fetch('/api/portfolio/save', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!response.ok) throw new Error('Failed to save portfolio');
+  return response.json();
+}
+
+export async function fetchSavedPortfolio() {
+  const response = await fetch('/api/portfolio');
+  if (!response.ok) throw new Error('Failed to fetch saved portfolio');
+  return response.json();
+}
+
+export async function clearSavedPortfolio() {
+  const response = await fetch('/api/portfolio', { method: 'DELETE' });
+  if (!response.ok) throw new Error('Failed to clear portfolio');
+  return response.json();
+}
+
+export async function exportPortfolioCSV(holdings, summary) {
+  const response = await fetch('/api/portfolio/export/csv', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ holdings, summary }),
+  });
+
+  if (!response.ok) throw new Error('Failed to export CSV');
+  const blob = await response.blob();
+  const url = window.URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `stock_ai_portfolio_${new Date().toISOString().slice(0, 10)}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  window.URL.revokeObjectURL(url);
+  a.remove();
+}
+
+export async function refreshPortfolioQuotes(currentPortfolio) {
+  const response = await fetch('/api/portfolio/refresh-quotes', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(currentPortfolio || {}),
+  });
+  if (!response.ok) {
+    const data = await response.json().catch(() => ({}));
+    throw new Error(data.error || 'Failed to refresh live quotes');
+  }
+  return response.json();
+}
+
+export async function fetchSettings() {
+  const response = await fetch('/api/settings');
+  if (!response.ok) throw new Error('Failed to fetch settings');
+  return response.json();
+}
+
+export async function saveSettings(apiKey) {
+  const response = await fetch('/api/settings', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ apiKey }),
+  });
+  if (!response.ok) {
+    const data = await response.json().catch(() => ({}));
+    throw new Error(data.error || 'Failed to save settings');
+  }
+  return response.json();
+}
+
+export async function testApiKey(apiKey) {
+  const response = await fetch('/api/settings/test', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ apiKey }),
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok || !data.success) {
+    throw new Error(data.error || 'Connection test failed');
+  }
+  return data;
 }

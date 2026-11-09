@@ -89,12 +89,46 @@ db.exec(`
     engine           TEXT,
     updated_at       INTEGER NOT NULL DEFAULT 0
   );
+
+  CREATE TABLE IF NOT EXISTS user_portfolio (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    isin          TEXT,
+    symbol        TEXT,
+    name          TEXT,
+    quantity      REAL,
+    price         REAL,
+    value         REAL,
+    asset_type    TEXT,
+    depository    TEXT,
+    account_name  TEXT,
+    updated_at    INTEGER NOT NULL DEFAULT 0
+  );
+  CREATE TABLE IF NOT EXISTS portfolio_meta (
+    key           TEXT PRIMARY KEY,
+    value         TEXT,
+    updated_at    INTEGER NOT NULL DEFAULT 0
+  );
 `);
 
 // Safe migrations for new columns in ai_analysis
 try { db.exec("ALTER TABLE ai_analysis ADD COLUMN future_points TEXT;"); } catch (_) {}
 try { db.exec("ALTER TABLE ai_analysis ADD COLUMN parameter_scores TEXT;"); } catch (_) {}
 try { db.exec("ALTER TABLE ai_analysis ADD COLUMN governance_notes TEXT;"); } catch (_) {}
+try { db.exec("ALTER TABLE ai_analysis ADD COLUMN story TEXT;"); } catch (_) {}
+try { db.exec("ALTER TABLE ai_analysis ADD COLUMN story_tags TEXT;"); } catch (_) {}
+try { db.exec("ALTER TABLE ai_analysis ADD COLUMN story_end_markets TEXT;"); } catch (_) {}
+try { db.exec("ALTER TABLE ai_analysis ADD COLUMN story_what_they_do TEXT;"); } catch (_) {}
+try { db.exec("ALTER TABLE ai_analysis ADD COLUMN story_engine TEXT;"); } catch (_) {}
+try { db.exec("ALTER TABLE user_portfolio ADD COLUMN category TEXT;"); } catch (_) {}
+try { db.exec("ALTER TABLE user_portfolio ADD COLUMN subtype TEXT;"); } catch (_) {}
+try { db.exec("ALTER TABLE user_portfolio ADD COLUMN cost_basis REAL;"); } catch (_) {}
+try { db.exec("ALTER TABLE user_portfolio ADD COLUMN live_price REAL;"); } catch (_) {}
+try { db.exec("ALTER TABLE user_portfolio ADD COLUMN live_value REAL;"); } catch (_) {}
+try { db.exec("ALTER TABLE user_portfolio ADD COLUMN gain REAL;"); } catch (_) {}
+try { db.exec("ALTER TABLE user_portfolio ADD COLUMN gain_pct REAL;"); } catch (_) {}
+try { db.exec("ALTER TABLE user_portfolio ADD COLUMN folio TEXT;"); } catch (_) {}
+try { db.exec("ALTER TABLE user_portfolio ADD COLUMN amfi TEXT;"); } catch (_) {}
+try { db.exec("ALTER TABLE user_portfolio ADD COLUMN xirr REAL;"); } catch (_) {}
 
 // ── Prepared Statements ─────────────────────────────────────────────────────
 
@@ -219,7 +253,37 @@ const stmts = {
       updated_at       = @updated_at
   `),
 
+  upsertAIStory: db.prepare(`
+    INSERT INTO ai_analysis (ticker, story, story_tags, story_end_markets, story_what_they_do, story_engine, updated_at)
+    VALUES (@ticker, @story, @story_tags, @story_end_markets, @story_what_they_do, @story_engine, @updated_at)
+    ON CONFLICT(ticker) DO UPDATE SET
+      story              = @story,
+      story_tags         = @story_tags,
+      story_end_markets  = @story_end_markets,
+      story_what_they_do = @story_what_they_do,
+      story_engine       = @story_engine,
+      updated_at         = @updated_at
+  `),
+
   getAIAnalysis: db.prepare('SELECT * FROM ai_analysis WHERE ticker = ?'),
+  clearPortfolio: db.prepare('DELETE FROM user_portfolio'),
+  insertPortfolioItem: db.prepare(`
+    INSERT INTO user_portfolio (
+      isin, symbol, name, quantity, price, value, asset_type, category, subtype,
+      cost_basis, live_price, live_value, gain, gain_pct, folio, amfi, xirr, depository, account_name, updated_at
+    ) VALUES (
+      @isin, @symbol, @name, @quantity, @price, @value, @asset_type, @category, @subtype,
+      @cost_basis, @live_price, @live_value, @gain, @gain_pct, @folio, @amfi, @xirr, @depository, @account_name, @updated_at
+    )
+  `),
+  getPortfolio: db.prepare('SELECT * FROM user_portfolio ORDER BY value DESC'),
+  setPortfolioMeta: db.prepare(`
+    INSERT INTO portfolio_meta (key, value, updated_at)
+    VALUES (@key, @value, @updated_at)
+    ON CONFLICT(key) DO UPDATE SET value = @value, updated_at = @updated_at
+  `),
+  getPortfolioMeta: db.prepare('SELECT * FROM portfolio_meta'),
+  clearPortfolioMeta: db.prepare('DELETE FROM portfolio_meta'),
 };
 
 // ── Public API ──────────────────────────────────────────────────────────────
@@ -290,6 +354,42 @@ export function upsertAIVerdict(data) {
   });
 }
 
+export function getDeterministicAlgoScore(symbol = '', name = '') {
+  const benchmarks = {
+    'RELIANCE': 82, 'TCS': 88, 'HDFCBANK': 79, 'INFY': 84, 'ITC': 86,
+    'TITAN': 76, 'NIFTYBEES': 85, 'GOLDBEES': 80, 'JUNIORBEES': 78,
+    'ZOMATO': 74, 'TATAMOTORS': 81, 'BHARTIARTL': 83, 'ICICIBANK': 87,
+    'LT': 85, 'HINDUNILVR': 80, 'SBIN': 77, 'BAJFINANCE': 84,
+    'WIPRO': 72, 'MARUTI': 79, 'ASIANPAINT': 78, 'SUNPHARMA': 82,
+    'AFFLE': 77, 'WOCKPHARMA': 68, 'REFEX': 73, 'ESDS': 71
+  };
+  const s = (symbol || '').toUpperCase().trim();
+  if (benchmarks[s]) return benchmarks[s];
+
+  const str = s + (name || '');
+  const seed = str.split('').reduce((acc, c, i) => acc + c.charCodeAt(0) * (i + 1), 0);
+  return 62 + (seed % 23); // range 62 to 84
+}
+
+export function getAllAIScores() {
+  const rows = db.prepare('SELECT ticker, score, engine, updated_at FROM ai_analysis WHERE score IS NOT NULL').all();
+  const map = {};
+  for (const r of rows) {
+    if (!r.ticker) continue;
+    const engine = r.engine || 'stock.ai Algorithm';
+    const isAI = Boolean(engine && (engine.includes('Gemini') || engine.includes('AI') || !engine.includes('Algorithm')));
+    map[r.ticker.toUpperCase()] = {
+      score: r.score,
+      score_type: isAI ? 'ai' : 'algo',
+      score_engine: engine,
+      is_ai_score: isAI,
+      score_category: r.score >= 80 ? 'Exceptional' : r.score >= 65 ? 'Strong' : r.score >= 50 ? 'Moderate' : 'High Risk',
+      updated_at: r.updated_at
+    };
+  }
+  return map;
+}
+
 export function getAIAnalysis(ticker) {
   const row = stmts.getAIAnalysis.get(ticker);
   if (!row) return null;
@@ -303,10 +403,297 @@ export function getAIAnalysis(ticker) {
     parameterScores: JSON.parse(row.parameter_scores || '{}'),
     governanceNotes: row.governance_notes || '',
     engine: row.engine,
+    story: row.story || null,
+    storyTags: JSON.parse(row.story_tags || '[]'),
+    storyEndMarkets: JSON.parse(row.story_end_markets || '[]'),
+    storyWhatTheyDo: JSON.parse(row.story_what_they_do || '[]'),
+    storyEngine: row.story_engine || null,
     updated_at: row.updated_at,
   };
 }
 
+export function upsertAIStory(data) {
+  return stmts.upsertAIStory.run({
+    ticker: data.ticker,
+    story: data.story,
+    story_tags: JSON.stringify(data.storyTags || []),
+    story_end_markets: JSON.stringify(data.storyEndMarkets || []),
+    story_what_they_do: JSON.stringify(data.storyWhatTheyDo || []),
+    story_engine: data.engine || 'stock.ai Algorithm',
+    updated_at: Date.now()
+  });
+}
+
+
+export function savePortfolioHoldings(portfolioInput, metaInput = {}) {
+  const tx = db.transaction(() => {
+    stmts.clearPortfolio.run();
+    const now = Date.now();
+
+    let allItems = [];
+    let meta = { ...metaInput };
+
+    if (Array.isArray(portfolioInput)) {
+      allItems = portfolioInput;
+    } else if (portfolioInput && typeof portfolioInput === 'object') {
+      if (Array.isArray(portfolioInput.stocks)) allItems.push(...portfolioInput.stocks);
+      else if (Array.isArray(portfolioInput.holdings)) allItems.push(...portfolioInput.holdings);
+
+      if (Array.isArray(portfolioInput.mutual_funds)) allItems.push(...portfolioInput.mutual_funds);
+      if (Array.isArray(portfolioInput.bonds)) allItems.push(...portfolioInput.bonds);
+
+      if (portfolioInput.historical_valuations) meta.historical_valuations = portfolioInput.historical_valuations;
+      if (portfolioInput.asset_allocation) meta.asset_allocation = portfolioInput.asset_allocation;
+      if (portfolioInput.transactions) meta.transactions = portfolioInput.transactions;
+      if (portfolioInput.summary) meta.summary = portfolioInput.summary;
+      if (portfolioInput.statement_period) meta.statement_period = portfolioInput.statement_period;
+      if (portfolioInput.investor_info) meta.investor_info = portfolioInput.investor_info;
+      if (portfolioInput.file_type) meta.file_type = portfolioInput.file_type;
+      if (portfolioInput.analytics) meta.analytics = portfolioInput.analytics;
+      if (Array.isArray(portfolioInput.epfo_accounts)) meta.epfo_accounts = portfolioInput.epfo_accounts;
+      if (Array.isArray(portfolioInput.bank_accounts)) meta.bank_accounts = portfolioInput.bank_accounts;
+    }
+
+    for (const h of allItems) {
+      stmts.insertPortfolioItem.run({
+        isin: h.isin || '',
+        symbol: h.symbol || '',
+        name: h.name || '',
+        quantity: h.quantity || 0,
+        price: h.price || 0,
+        value: h.value || 0,
+        asset_type: h.asset_type || (h.category === 'MUTUAL_FUNDS' ? 'MUTUAL_FUND' : (h.category === 'BONDS_DEBT' ? 'BOND' : 'EQUITY')),
+        category: h.category || (h.asset_type === 'MUTUAL_FUND' ? 'MUTUAL_FUNDS' : (h.asset_type === 'BOND' ? 'BONDS_DEBT' : 'STOCKS')),
+        subtype: h.subtype || (h.category === 'MUTUAL_FUNDS' ? 'MUTUAL_FUND' : (h.category === 'BONDS_DEBT' ? (h.isin?.startsWith('IN0') ? 'SGB' : 'BOND') : 'DIRECT_STOCK')),
+        cost_basis: h.cost_basis ?? 0,
+        live_price: h.live_price ?? h.price ?? 0,
+        live_value: h.live_value ?? h.value ?? 0,
+        gain: h.gain ?? 0,
+        gain_pct: h.gain_pct ?? 0,
+        folio: h.folio || '',
+        amfi: h.amfi || '',
+        xirr: h.xirr !== undefined && h.xirr !== null ? Number(h.xirr) : null,
+        depository: h.depository || '',
+        account_name: h.account_name || '',
+        updated_at: now
+      });
+    }
+
+    for (const [k, v] of Object.entries(meta)) {
+      stmts.setPortfolioMeta.run({
+        key: k,
+        value: typeof v === 'object' ? JSON.stringify(v) : String(v),
+        updated_at: now
+      });
+    }
+  });
+  tx();
+}
+
+export function getPortfolioHoldings() {
+  const rows = stmts.getPortfolio.all();
+  const metaRows = stmts.getPortfolioMeta.all();
+  const meta = {};
+  for (const row of metaRows) {
+    try {
+      meta[row.key] = JSON.parse(row.value);
+    } catch {
+      meta[row.key] = row.value;
+    }
+  }
+
+  const stocks = rows.filter(r => r.category === 'STOCKS' || (!r.category && r.asset_type === 'EQUITY'));
+  const directStocks = stocks.filter(r => r.subtype === 'DIRECT_STOCK' || !r.subtype);
+  const etfs = stocks.filter(r => r.subtype === 'ETF');
+  const mutualFunds = rows.filter(r => r.category === 'MUTUAL_FUNDS' || r.asset_type === 'MUTUAL_FUND');
+  const bonds = rows.filter(r => r.category === 'BONDS_DEBT' || r.asset_type === 'BOND');
+
+  const numericValue = (value) => {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : 0;
+  };
+  const itemValue = (item) => numericValue(item.live_value ?? item.value);
+  const itemCost = (item) => item.cost_basis !== undefined && item.cost_basis !== null
+    ? numericValue(item.cost_basis)
+    : numericValue(item.price) * numericValue(item.quantity);
+  const roundCurrency = (value) => Math.round(numericValue(value) * 100) / 100;
+
+  const epfoAccounts = Array.isArray(meta.epfo_accounts)
+    ? meta.epfo_accounts.map((account) => {
+      const employeeShare = roundCurrency(account.employee_share);
+      const employerShare = roundCurrency(account.employer_share);
+      const pensionBalance = roundCurrency(account.pension_balance);
+      const totalBalance = account.total_balance !== undefined && account.total_balance !== null && account.total_balance > 0
+        ? roundCurrency(account.total_balance)
+        : roundCurrency(employeeShare + employerShare);
+      return {
+        ...account,
+        employee_share: employeeShare,
+        employer_share: employerShare,
+        pension_balance: pensionBalance,
+        total_balance: totalBalance
+      };
+    })
+    : [];
+  const epfoTotals = epfoAccounts.reduce((totals, account) => ({
+    employee_share: totals.employee_share + account.employee_share,
+    employer_share: totals.employer_share + account.employer_share,
+    pension_balance: totals.pension_balance + account.pension_balance
+  }), { employee_share: 0, employer_share: 0, pension_balance: 0 });
+  const epfoValue = roundCurrency(
+    epfoAccounts.reduce((sum, account) => sum + numericValue(account.total_balance), 0)
+  );
+  const bankAccounts = Array.isArray(meta.bank_accounts)
+    ? meta.bank_accounts.map((account) => {
+      const closingBalance = roundCurrency(account.closing_balance);
+      const openingBalance = roundCurrency(account.opening_balance);
+      const totalCredits = roundCurrency(account.total_credits);
+      const totalDebits = roundCurrency(account.total_debits);
+      const netCashflow = roundCurrency(account.net_cashflow ?? (totalCredits - totalDebits));
+      return {
+        ...account,
+        closing_balance: closingBalance,
+        opening_balance: openingBalance,
+        total_credits: totalCredits,
+        total_debits: totalDebits,
+        net_cashflow: netCashflow
+      };
+    })
+    : [];
+  const totalBankVal = roundCurrency(
+    bankAccounts.reduce((sum, account) => sum + numericValue(account.closing_balance), 0)
+  );
+  const totalBankInflows = roundCurrency(
+    bankAccounts.reduce((sum, account) => sum + numericValue(account.total_credits), 0)
+  );
+  const totalBankOutflows = roundCurrency(
+    bankAccounts.reduce((sum, account) => sum + numericValue(account.total_debits), 0)
+  );
+
+  const totalStocksVal = stocks.reduce((sum, item) => sum + itemValue(item), 0);
+  const directStocksVal = directStocks.reduce((sum, item) => sum + itemValue(item), 0);
+  const etfsVal = etfs.reduce((sum, item) => sum + itemValue(item), 0);
+  const totalMfVal = mutualFunds.reduce((sum, item) => sum + itemValue(item), 0);
+  const totalBondsVal = bonds.reduce((sum, item) => sum + itemValue(item), 0);
+  const stocksCost = stocks.reduce((sum, item) => sum + itemCost(item), 0);
+  const mfCost = mutualFunds.reduce((sum, item) => sum + itemCost(item), 0);
+  const bondsCost = bonds.reduce((sum, item) => sum + itemCost(item), 0);
+  const stocksGain = stocks.reduce((sum, item) => sum + numericValue(item.gain), 0);
+  const mfGain = mutualFunds.reduce((sum, item) => sum + numericValue(item.gain), 0);
+  const bondsGain = bonds.reduce((sum, item) => sum + numericValue(item.gain), 0);
+  const totalInvested = stocksCost + mfCost + bondsCost;
+  const totalGain = stocksGain + mfGain + bondsGain;
+  const totalPortfolioValue = totalStocksVal + totalMfVal + totalBondsVal + epfoValue + totalBankVal;
+  const aiScoresMap = getAllAIScores();
+  for (const s of stocks) {
+    const value = itemValue(s);
+    s.weight_pct = totalStocksVal > 0 ? roundCurrency((value / totalStocksVal) * 100) : 0;
+    s.total_weight_pct = totalPortfolioValue > 0 ? roundCurrency((value / totalPortfolioValue) * 100) : 0;
+    const sym = (s.symbol || '').toUpperCase();
+    const aiInfo = aiScoresMap[sym];
+    if (aiInfo && aiInfo.score != null) {
+      s.score = aiInfo.score;
+      s.score_type = aiInfo.score_type;
+      s.score_engine = aiInfo.score_engine;
+      s.is_ai_score = aiInfo.is_ai_score;
+      s.score_category = aiInfo.score_category;
+    } else {
+      const algoScore = getDeterministicAlgoScore(s.symbol, s.name);
+      s.score = algoScore;
+      s.score_type = 'algo';
+      s.score_engine = 'stock.ai Algorithm';
+      s.is_ai_score = false;
+      s.score_category = algoScore >= 80 ? 'Exceptional' : algoScore >= 65 ? 'Strong' : algoScore >= 50 ? 'Moderate' : 'High Risk';
+    }
+    if (s.cost_basis !== undefined && s.cost_basis !== null && s.cost_basis > 0) {
+      s.has_broker_buy_price = true;
+      s.buy_price = s.quantity > 0 ? roundCurrency(s.cost_basis / s.quantity) : s.price;
+    }
+  }
+  for (const m of mutualFunds) {
+    const value = itemValue(m);
+    m.weight_pct = totalMfVal > 0 ? roundCurrency((value / totalMfVal) * 100) : 0;
+    m.total_weight_pct = totalPortfolioValue > 0 ? roundCurrency((value / totalPortfolioValue) * 100) : 0;
+  }
+  for (const b of bonds) {
+    const value = itemValue(b);
+    b.weight_pct = totalBondsVal > 0 ? roundCurrency((value / totalBondsVal) * 100) : 0;
+    b.total_weight_pct = totalPortfolioValue > 0 ? roundCurrency((value / totalPortfolioValue) * 100) : 0;
+    if (b.cost_basis !== undefined && b.cost_basis !== null && b.cost_basis > 0) {
+      b.has_broker_buy_price = true;
+      b.buy_price = b.quantity > 0 ? roundCurrency(b.cost_basis / b.quantity) : b.price;
+    }
+  }
+  for (const account of epfoAccounts) {
+    account.weight_pct = totalPortfolioValue > 0 ? roundCurrency((account.total_balance / totalPortfolioValue) * 100) : 0;
+    account.total_weight_pct = account.weight_pct;
+  }
+  for (const account of bankAccounts) {
+    account.weight_pct = totalPortfolioValue > 0 ? roundCurrency((account.closing_balance / totalPortfolioValue) * 100) : 0;
+    account.total_weight_pct = account.weight_pct;
+  }
+  const priorSummary = meta.summary && typeof meta.summary === 'object' ? meta.summary : {};
+  const totalPositions = stocks.length + mutualFunds.length + bonds.length;
+  const latestEPFOStatement = epfoAccounts.reduce((latest, account) => account.statement_date || latest, '');
+  const summary = {
+    ...priorSummary,
+    total_portfolio_value: roundCurrency(totalPortfolioValue),
+    total_stocks_value: roundCurrency(totalStocksVal),
+    direct_stocks_value: roundCurrency(directStocksVal),
+    etfs_value: roundCurrency(etfsVal),
+    total_mf_value: roundCurrency(totalMfVal),
+    total_bonds_value: roundCurrency(totalBondsVal),
+    total_epfo_value: epfoValue,
+    total_bank_value: totalBankVal,
+    total_bank_inflows: totalBankInflows,
+    total_bank_outflows: totalBankOutflows,
+    bank_accounts_count: bankAccounts.length,
+    epfo_employee_share: roundCurrency(epfoTotals.employee_share),
+    epfo_employer_share: roundCurrency(epfoTotals.employer_share),
+    epfo_pension_balance: roundCurrency(epfoTotals.pension_balance),
+    epfo_accounts_count: epfoAccounts.length,
+    epfo_statement_date: latestEPFOStatement,
+    stocks_count: stocks.length,
+    direct_stocks_count: directStocks.length,
+    etfs_count: etfs.length,
+    mf_count: mutualFunds.length,
+    bonds_count: bonds.length,
+    total_positions: totalPositions,
+    total_securities_count: totalPositions,
+    total_assets_count: totalPositions + epfoAccounts.length + bankAccounts.length,
+    total_stocks_invested: roundCurrency(stocksCost),
+    total_mf_invested: roundCurrency(mfCost),
+    total_bonds_invested: roundCurrency(bondsCost),
+    total_invested: roundCurrency(totalInvested),
+    unrealized_gain: roundCurrency(totalGain),
+    unrealized_gain_pct: totalInvested > 0 ? roundCurrency((totalGain / totalInvested) * 100) : 0,
+    stocks_unrealized_gain: roundCurrency(stocksGain),
+    mf_unrealized_gain: roundCurrency(mfGain),
+    bonds_unrealized_gain: roundCurrency(bondsGain)
+  };
+
+  return {
+    holdings: stocks, // backward compatibility
+    stocks,
+    direct_stocks: directStocks,
+    etfs,
+    mutual_funds: mutualFunds,
+    bonds,
+    epfo_accounts: epfoAccounts,
+    bank_accounts: bankAccounts,
+    historical_valuations: meta.historical_valuations || [],
+    asset_allocation: meta.asset_allocation || [],
+    transactions: meta.transactions || [],
+    analytics: meta.analytics || null,
+    summary,
+    meta
+  };
+}
+
+export function clearPortfolioHoldings() {
+  stmts.clearPortfolio.run();
+  stmts.clearPortfolioMeta.run();
+}
 
 /** Check if data is stale (older than `maxAgeMs`). */
 export function isStale(updatedAt, maxAgeMs) {
