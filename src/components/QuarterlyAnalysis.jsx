@@ -2,10 +2,10 @@ import React, { useMemo } from 'react';
 import { BarChart3, ArrowUpRight, ArrowDownRight } from 'lucide-react';
 
 export default function QuarterlyAnalysis({ financials = [], currencySymbol = "₹ Cr" }) {
-  // Only show the last 8 quarters as requested
+  // Only show the last 8 quarters, sorted latest on top
   const recentQuarters = useMemo(() => {
     if (!financials || financials.length === 0) return [];
-    return financials.slice(-8);
+    return [...financials].slice(-8).reverse();
   }, [financials]);
 
   if (recentQuarters.length === 0) return null;
