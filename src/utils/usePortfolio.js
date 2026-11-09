@@ -10,7 +10,8 @@ import {
   savePortfolio,
   fetchSavedPortfolio,
   clearSavedPortfolio,
-  exportPortfolioCSV
+  exportPortfolioCSV,
+  refreshPortfolioQuotes
 } from './api';
 
 const LOCAL_STORAGE_KEY = 'stock_ai_cached_portfolio';
@@ -23,6 +24,7 @@ let globalIsBrokerUploading = false;
 let globalIsEPFOUploading = false;
 let globalIsBankUploading = false;
 let globalSaveStatus = null;
+let globalIsRefreshingQuotes = false;
 let isInitialized = false;
 
 const listeners = new Set();
@@ -439,6 +441,36 @@ export function usePortfolio() {
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
   }, []);
+  const handleRefreshLiveQuotes = useCallback(async () => {
+    if (!globalPortfolio || !globalPortfolio.stocks || globalPortfolio.stocks.length === 0) return 0;
+    globalIsRefreshingQuotes = true;
+    emitChange();
+    try {
+      const res = await refreshPortfolioQuotes(globalPortfolio);
+      if (res && res.data) {
+        const norm = (arr) => Array.isArray(arr) ? arr.map(normalizeHolding) : arr;
+        globalPortfolio = {
+          ...res.data,
+          stocks: norm(res.data.stocks),
+          holdings: norm(res.data.holdings),
+          direct_stocks: norm(res.data.direct_stocks),
+          etfs: norm(res.data.etfs),
+        };
+        localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(globalPortfolio));
+        emitChange();
+        return res.updatedCount || 0;
+      }
+    } catch (err) {
+      console.error('Failed to refresh live quotes:', err);
+      globalError = 'Failed to refresh live quotes: ' + err.message;
+      emitChange();
+    } finally {
+      globalIsRefreshingQuotes = false;
+      emitChange();
+    }
+    return 0;
+  }, []);
+
 
   return {
     portfolioData: globalPortfolio,
@@ -449,6 +481,7 @@ export function usePortfolio() {
     isEPFOUploading: globalIsEPFOUploading,
     isBankUploading: globalIsBankUploading,
     saveStatus: globalSaveStatus,
+    isRefreshingQuotes: globalIsRefreshingQuotes,
     setPortfolioData: updatePortfolioState,
     updatePortfolioState,
     updateStockScore,
@@ -463,6 +496,7 @@ export function usePortfolio() {
     handleSaveToDatabase,
     handleExportCSV,
     handleExportJSON,
+    handleRefreshLiveQuotes,
     clearError: () => {
       globalError = null;
       emitChange();

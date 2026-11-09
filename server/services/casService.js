@@ -5,6 +5,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import * as yahoo from '../sources/yahoo.js';
 import * as db from '../db.js';
+import { normalizeTicker } from './stockService.js';
 const execFileAsync = promisify(execFile);
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -1125,6 +1126,78 @@ async function enrichWithLiveQuotes(holdings) {
   }
 
   return enriched;
+}
+
+/**
+ * Refreshes all active Stocks and ETFs with live CMP from Yahoo Finance,
+ * updating live prices, holding valuations, unrealized gains, and portfolio totals.
+ * Persists updated portfolio to SQLite.
+ */
+export async function refreshPortfolioLiveQuotes(portfolio) {
+  if (!portfolio) {
+    portfolio = db.getPortfolioHoldings();
+  }
+  ensurePortfolioCollections(portfolio);
+  if (!portfolio.stocks || portfolio.stocks.length === 0) {
+    return { updatedCount: 0, portfolio };
+  }
+
+  const stocks = [...portfolio.stocks];
+  let updatedCount = 0;
+
+  for (const item of stocks) {
+    const sym = item.symbol || item.ticker;
+    if (!sym) continue;
+    const normSym = normalizeTicker(sym);
+    try {
+      const quoteData = await yahoo.fetchQuote(normSym);
+      const q = quoteData?.quote;
+      if (q && q.price != null && q.price > 0) {
+        item.live_price = q.price;
+        item.live_change = q.change || 0;
+        item.live_change_percent = q.change_percent || 0;
+        item.live_value = roundCurrency(item.quantity * q.price);
+
+        const cost = (item.cost_basis !== undefined && item.cost_basis !== null && item.cost_basis > 0)
+          ? item.cost_basis
+          : ((item.buy_price || item.price || 0) * (item.quantity || 0));
+
+        item.gain = roundCurrency(item.live_value - cost);
+        item.gain_pct = cost > 0 ? roundCurrency((item.gain / cost) * 100) : 0;
+        updatedCount++;
+      }
+    } catch (e) {
+      console.warn(`Failed to refresh live quote for ${sym}:`, e.message);
+    }
+  }
+
+  portfolio.stocks = stocks;
+  portfolio.holdings = stocks;
+  portfolio.direct_stocks = stocks.filter(s => s.subtype !== 'ETF');
+  portfolio.etfs = stocks.filter(s => s.subtype === 'ETF');
+
+  refreshPortfolioSummary(portfolio);
+  portfolio.analytics = computePortfolioAnalytics(portfolio);
+
+  // Persist updated portfolio to SQLite
+  try {
+    db.savePortfolioHoldings({
+      ...portfolio,
+      meta: {
+        ...(portfolio.meta || {}),
+        summary: portfolio.summary,
+        broker_summary: portfolio.broker_summary || portfolio.summary,
+        epfo_accounts: portfolio.epfo_accounts,
+        bank_accounts: portfolio.bank_accounts,
+        historical_series: portfolio.historical_series,
+        transactions: portfolio.transactions
+      }
+    });
+  } catch (err) {
+    console.error('Failed to persist refreshed portfolio to DB:', err);
+  }
+
+  return { updatedCount, portfolio };
 }
 
 /**

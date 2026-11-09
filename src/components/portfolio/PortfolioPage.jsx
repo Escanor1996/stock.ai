@@ -21,7 +21,8 @@ import {
   savePortfolio,
   fetchSavedPortfolio,
   clearSavedPortfolio,
-  exportPortfolioCSV
+  exportPortfolioCSV,
+  refreshPortfolioQuotes
 } from '../../utils/api';
 const LOCAL_STORAGE_KEY = 'stock_ai_cached_portfolio';
 
@@ -42,6 +43,8 @@ export default function PortfolioPage({
   onSave = null,
   onClear = null,
   saveStatus: externalSaveStatus = undefined,
+  onRefreshLiveQuotes = null,
+  isRefreshingQuotes: externalIsRefreshingQuotes = undefined,
   error: externalError = undefined
 }) {
   const [internalPortfolioData, setInternalPortfolioData] = useState(null);
@@ -79,6 +82,32 @@ export default function PortfolioPage({
   const [brokerNotice, setBrokerNotice] = useState(null);
   const [isEPFOUploadingLocal, setIsEPFOUploadingLocal] = useState(false);
   const isEPFOUploading = externalIsEPFOUploading !== undefined ? externalIsEPFOUploading : isEPFOUploadingLocal;
+  const [internalIsRefreshingQuotes, setInternalIsRefreshingQuotes] = useState(false);
+  const isRefreshingQuotes = externalIsRefreshingQuotes !== undefined ? externalIsRefreshingQuotes : internalIsRefreshingQuotes;
+
+  const handleRefreshLiveQuotes = async () => {
+    if (onRefreshLiveQuotes) {
+      return onRefreshLiveQuotes();
+    }
+    if (!portfolioData || !portfolioData.stocks || portfolioData.stocks.length === 0) return;
+    setInternalIsRefreshingQuotes(true);
+    try {
+      const res = await refreshPortfolioQuotes(portfolioData);
+      if (res && res.data) {
+        setInternalPortfolioData(res.data);
+        localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(res.data));
+        setBrokerNotice({
+          type: 'success',
+          message: `Refreshed live CMP quotes for ${res.updatedCount || res.data.stocks?.length || 0} holdings!`
+        });
+        setTimeout(() => setBrokerNotice(null), 4000);
+      }
+    } catch (err) {
+      setError('Failed to refresh live CMP quotes: ' + err.message);
+    } finally {
+      setInternalIsRefreshingQuotes(false);
+    }
+  };
   // Load cached or saved portfolio on mount
   useEffect(() => {
     const cached = localStorage.getItem(LOCAL_STORAGE_KEY);
@@ -623,6 +652,8 @@ export default function PortfolioPage({
         saveStatus={saveStatus}
         isExporting={isExporting}
         isBrokerUploading={isBrokerUploading}
+        onRefreshLiveQuotes={handleRefreshLiveQuotes}
+        isRefreshingQuotes={isRefreshingQuotes}
       />
       {brokerNotice && (
         <div className="p-3 bg-info/10 border border-info/30 rounded-xl text-xs text-info flex items-center justify-between">
@@ -721,6 +752,8 @@ export default function PortfolioPage({
               searchQuery={searchQuery}
               onSelectStock={onSelectStock}
               summary={summary}
+              onRefreshLiveQuotes={handleRefreshLiveQuotes}
+              isRefreshingQuotes={isRefreshingQuotes}
             />
           )}
 

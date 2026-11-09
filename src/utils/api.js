@@ -416,6 +416,19 @@ export async function exportPortfolioCSV(holdings, summary) {
   a.remove();
 }
 
+export async function refreshPortfolioQuotes(currentPortfolio) {
+  const response = await fetch('/api/portfolio/refresh-quotes', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(currentPortfolio || {}),
+  });
+  if (!response.ok) {
+    const data = await response.json().catch(() => ({}));
+    throw new Error(data.error || 'Failed to refresh live quotes');
+  }
+  return response.json();
+}
+
 export async function fetchSettings() {
   const response = await fetch('/api/settings');
   if (!response.ok) throw new Error('Failed to fetch settings');

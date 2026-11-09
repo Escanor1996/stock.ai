@@ -25,7 +25,9 @@ export default function PortfolioHeader({
   isExporting = false,
   isBrokerUploading = false,
   isEPFOUploading = false,
-  isBankUploading = false
+  isBankUploading = false,
+  onRefreshLiveQuotes = () => {},
+  isRefreshingQuotes = false
 }) {
   const brokerFileRef = useRef(null);
   const epfoFileRef = useRef(null);
@@ -157,6 +159,17 @@ export default function PortfolioHeader({
               <FileSpreadsheet className="w-3.5 h-3.5 text-info" />
             )}
             <span>{isBrokerUploading ? 'Importing...' : 'Import Broker Sheet'}</span>
+          </button>
+          {/* Refresh Live CMP Quotes */}
+          <button
+            type="button"
+            onClick={onRefreshLiveQuotes}
+            disabled={isRefreshingQuotes}
+            className="inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold text-foreground bg-muted hover:bg-muted/80 border border-border rounded-full transition-all duration-150 active:scale-95 disabled:opacity-50 cursor-pointer"
+            title="Fetch real-time CMP quotes for stocks and ETFs from Yahoo Finance and recalculate portfolio value"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 text-success ${isRefreshingQuotes ? 'animate-spin' : ''}`} />
+            <span>{isRefreshingQuotes ? 'Fetching CMP...' : 'Live CMP'}</span>
           </button>
           {/* Export CSV */}
           <button

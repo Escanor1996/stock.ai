@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { ChevronRight, ArrowUpDown, Sparkles, Cpu } from 'lucide-react';
+import { ChevronRight, ArrowUpDown, Sparkles, Cpu, RefreshCw } from 'lucide-react';
 
 const getScoreTheme = (score) => {
   if (score >= 80) {
@@ -39,7 +39,9 @@ export default function StocksTable({
   etfs = [],
   searchQuery = '',
   onSelectStock = () => {},
-  summary = {}
+  summary = {},
+  onRefreshLiveQuotes = () => {},
+  isRefreshingQuotes = false
 }) {
   const [subfilter, setSubfilter] = useState('all');
   const [sortField, setSortField] = useState('value');
@@ -80,6 +82,13 @@ export default function StocksTable({
     }, 0);
   }, [stocks]);
   const stocksGainPct = stocksCostTotal > 0 ? (stocksGainTotal / stocksCostTotal) * 100 : 0;
+
+  const stocks1DTotal = useMemo(() => {
+    return stocks.reduce((sum, s) => sum + ((s.live_change || 0) * (s.quantity || 0)), 0);
+  }, [stocks]);
+  const stocks1DPct = stocksCurrentVal > 0 && (stocksCurrentVal - stocks1DTotal) > 0
+    ? (stocks1DTotal / (stocksCurrentVal - stocks1DTotal)) * 100
+    : 0;
 
   const filteredStocks = useMemo(() => {
     let source = stocks;
@@ -153,29 +162,40 @@ export default function StocksTable({
               </span>
             )}
           </div>
-          {/* Sub-filter pills */}
-          <div className="inline-flex items-center gap-0.5 bg-muted/50 p-0.5 rounded-full">
-            {[
-              { key: 'all', label: `All (${stocks.length})` },
-              { key: 'direct', label: `Direct (${directStocks.length})` },
-              { key: 'etf', label: `ETFs (${etfs.length})` },
-            ].map(f => (
-              <button
-                key={f.key}
-                type="button"
-                onClick={() => setSubfilter(f.key)}
-                className={`px-3 py-1 text-[11px] font-semibold rounded-full transition-all ${
-                  subfilter === f.key
-                    ? 'bg-card text-foreground shadow-xs'
-                    : 'text-muted-foreground hover:text-foreground'
-                }`}
-              >
-                {f.label}
-              </button>
-            ))}
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={onRefreshLiveQuotes}
+              disabled={isRefreshingQuotes}
+              className="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-semibold rounded-full bg-muted/80 hover:bg-muted text-foreground border border-border/60 transition-all active:scale-95 disabled:opacity-50 cursor-pointer"
+              title="Refresh live market CMP prices from Yahoo Finance"
+            >
+              <RefreshCw className={`w-3 h-3 text-success ${isRefreshingQuotes ? 'animate-spin' : ''}`} />
+              <span>{isRefreshingQuotes ? 'Updating...' : 'Live CMP'}</span>
+            </button>
+            {/* Sub-filter pills */}
+            <div className="inline-flex items-center gap-0.5 bg-muted/50 p-0.5 rounded-full">
+              {[
+                { key: 'all', label: `All (${stocks.length})` },
+                { key: 'direct', label: `Direct (${directStocks.length})` },
+                { key: 'etf', label: `ETFs (${etfs.length})` },
+              ].map(f => (
+                <button
+                  key={f.key}
+                  type="button"
+                  onClick={() => setSubfilter(f.key)}
+                  className={`px-3 py-1 text-[11px] font-semibold rounded-full transition-all ${
+                    subfilter === f.key
+                      ? 'bg-card text-foreground shadow-xs'
+                      : 'text-muted-foreground hover:text-foreground'
+                  }`}
+                >
+                  {f.label}
+                </button>
+              ))}
+            </div>
           </div>
         </div>
-
         <div className="font-serif text-2xl font-bold text-foreground mb-4">
           {fmt(stocksCurrentVal)}
         </div>
@@ -187,7 +207,9 @@ export default function StocksTable({
           </div>
           <div>
             <div className="text-[11px] text-muted-foreground mb-0.5">1D returns</div>
-            <div className="text-sm font-semibold text-muted-foreground font-mono">₹0.00 (0.00%)</div>
+            <div className={`text-sm font-semibold font-mono ${stocks1DTotal >= 0 ? 'text-success' : 'text-destructive'}`}>
+              {stocks1DTotal >= 0 ? '+' : '-'}{fmt(stocks1DTotal)} ({stocks1DPct.toFixed(2)}%)
+            </div>
           </div>
           <div>
             <div className="text-[11px] text-muted-foreground mb-0.5">Total returns</div>

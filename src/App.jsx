@@ -386,6 +386,8 @@ export default function App() {
             onClear={portfolio.handleClearPortfolio}
             saveStatus={portfolio.saveStatus}
             error={portfolio.error}
+            onRefreshLiveQuotes={portfolio.handleRefreshLiveQuotes}
+            isRefreshingQuotes={portfolio.isRefreshingQuotes}
           />
         ) : activeTab === 'watchlist' ? (
           <Watchlist

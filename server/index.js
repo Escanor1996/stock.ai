@@ -17,7 +17,7 @@ import express from 'express';
 import cors from 'cors';
 import { getStockData, getHistoricalPrices, searchStocks } from './services/stockService.js';
 import { generateAIScore, generateAIVerdict, generateAIAnalysis } from './services/aiService.js';
-import { parseCASFile, parseBrokerSpreadsheet, parseEPFOPassbook, parseBankStatement, mergeBrokerPrices, mergeEPFOAccounts, mergeBankAccounts, refreshPortfolioSummary, computePortfolioAnalytics, getSamplePortfolio, exportToCSV } from './services/casService.js';
+import { parseCASFile, parseBrokerSpreadsheet, parseEPFOPassbook, parseBankStatement, mergeBrokerPrices, mergeEPFOAccounts, mergeBankAccounts, refreshPortfolioSummary, computePortfolioAnalytics, getSamplePortfolio, exportToCSV, refreshPortfolioLiveQuotes } from './services/casService.js';
 import * as db from './db.js';
 import multer from 'multer';
 
@@ -507,6 +507,18 @@ app.delete('/api/portfolio', (req, res) => {
   } catch (err) {
     console.error('Clear portfolio error:', err);
     res.status(500).json({ success: false, error: 'Failed to clear portfolio' });
+  }
+});
+
+// POST /api/portfolio/refresh-quotes — Refresh active stocks and ETFs with latest live CMP from Yahoo Finance
+app.post('/api/portfolio/refresh-quotes', async (req, res) => {
+  try {
+    const payload = (req.body && (req.body.stocks || req.body.holdings)) ? req.body : db.getPortfolioHoldings();
+    const result = await refreshPortfolioLiveQuotes(payload);
+    res.json({ success: true, updatedCount: result.updatedCount, data: result.portfolio });
+  } catch (err) {
+    console.error('Refresh quotes error:', err);
+    res.status(500).json({ success: false, error: 'Failed to refresh live quotes: ' + err.message });
   }
 });
 

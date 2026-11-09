@@ -23,9 +23,24 @@ export default function StockChart({ symbol, currentPrice }) {
       try {
         const hist = await fetchHistorical(symbol, range);
         if (active) {
-          // Add current price as the very last data point if it's the 1D/1W view
-          // But usually the history endpoint already has the latest close.
-          setData(hist);
+          let series = Array.isArray(hist) ? hist.map(item => ({ ...item })) : [];
+          if (currentPrice != null && currentPrice > 0 && series.length > 0) {
+            const todayStr = new Date().toISOString().slice(0, 10);
+            const last = series[series.length - 1];
+            if (last.date === todayStr) {
+              last.close = currentPrice;
+            } else {
+              series.push({
+                date: todayStr,
+                open: last.close || currentPrice,
+                high: Math.max(last.high || currentPrice, currentPrice),
+                low: Math.min(last.low || currentPrice, currentPrice),
+                close: currentPrice,
+                volume: 0
+              });
+            }
+          }
+          setData(series);
         }
       } catch (err) {
         console.error('Failed to load history:', err);
@@ -66,9 +81,15 @@ export default function StockChart({ symbol, currentPrice }) {
       {/* Header & Controls */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-border/40 pb-4">
         <div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             <Activity className="w-5 h-5 text-success" />
             <h3 className="text-base font-bold text-foreground tracking-wide">Historical Price Chart</h3>
+            {currentPrice > 0 && (
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-mono font-bold bg-success/10 text-success border border-success/30">
+                <span className="w-1.5 h-1.5 rounded-full bg-success animate-pulse" />
+                <span>Live CMP: ₹{Number(currentPrice).toLocaleString('en-IN', { maximumFractionDigits: 2 })}</span>
+              </span>
+            )}
           </div>
           {data.length > 1 && (
             <div className={`text-sm font-bold font-mono mt-1 ${isPositive ? 'text-success' : 'text-destructive'}`}>

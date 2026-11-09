@@ -54,6 +54,7 @@ export function normalizeTicker(ticker) {
     'TECHNO': 'TECHNOE',
     'MOTILAL': 'MON100',
     'NIP': 'NIFTYBEES',
+    'ZOMATO': 'ETERNAL',
   };
   if (aliasMap[t]) return aliasMap[t];
   return t;
@@ -206,23 +207,19 @@ export async function getHistoricalPrices(ticker, range = '1y') {
 }
 
 async function _fetchHistorical(ticker, range) {
-  const { period1, period2, interval } = rangeToParams(range);
+  // Always fetch fresh chart with live CMP to ensure latest market price is displayed
+  const rows = await yahoo.fetchHistorical(ticker, range);
+  if (rows && rows.length > 0) {
+    db.upsertHistorical(ticker, rows);
+    return rows;
+  }
+
+  // Fallback to cached
+  const { period1, period2 } = rangeToParams(range);
   const fromStr = period1.toISOString().slice(0, 10);
   const toStr = period2.toISOString().slice(0, 10);
-
-  // Check DB
   const cached = db.getHistorical(ticker, fromStr, toStr);
-  // Only use cache if we have a reasonable number of rows and data is fresh
-  const stock = db.getStock(ticker);
-  const histFresh = stock && !db.isStale(stock.updated_at, HISTORICAL_TTL);
-  if (cached.length > 5 && histFresh) return cached;
-
-  // Fetch fresh
-  const rows = await yahoo.fetchHistorical(ticker, period1, period2, interval);
-  if (rows.length > 0) {
-    db.upsertHistorical(ticker, rows);
-  }
-  return rows.length > 0 ? rows : cached;
+  return cached;
 }
 
 function rangeToParams(range) {
