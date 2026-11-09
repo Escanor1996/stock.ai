@@ -114,6 +114,11 @@ db.exec(`
 try { db.exec("ALTER TABLE ai_analysis ADD COLUMN future_points TEXT;"); } catch (_) {}
 try { db.exec("ALTER TABLE ai_analysis ADD COLUMN parameter_scores TEXT;"); } catch (_) {}
 try { db.exec("ALTER TABLE ai_analysis ADD COLUMN governance_notes TEXT;"); } catch (_) {}
+try { db.exec("ALTER TABLE ai_analysis ADD COLUMN story TEXT;"); } catch (_) {}
+try { db.exec("ALTER TABLE ai_analysis ADD COLUMN story_tags TEXT;"); } catch (_) {}
+try { db.exec("ALTER TABLE ai_analysis ADD COLUMN story_end_markets TEXT;"); } catch (_) {}
+try { db.exec("ALTER TABLE ai_analysis ADD COLUMN story_what_they_do TEXT;"); } catch (_) {}
+try { db.exec("ALTER TABLE ai_analysis ADD COLUMN story_engine TEXT;"); } catch (_) {}
 try { db.exec("ALTER TABLE user_portfolio ADD COLUMN category TEXT;"); } catch (_) {}
 try { db.exec("ALTER TABLE user_portfolio ADD COLUMN subtype TEXT;"); } catch (_) {}
 try { db.exec("ALTER TABLE user_portfolio ADD COLUMN cost_basis REAL;"); } catch (_) {}
@@ -246,6 +251,18 @@ const stmts = {
       governance_notes = @governance_notes,
       engine           = @engine,
       updated_at       = @updated_at
+  `),
+
+  upsertAIStory: db.prepare(`
+    INSERT INTO ai_analysis (ticker, story, story_tags, story_end_markets, story_what_they_do, story_engine, updated_at)
+    VALUES (@ticker, @story, @story_tags, @story_end_markets, @story_what_they_do, @story_engine, @updated_at)
+    ON CONFLICT(ticker) DO UPDATE SET
+      story              = @story,
+      story_tags         = @story_tags,
+      story_end_markets  = @story_end_markets,
+      story_what_they_do = @story_what_they_do,
+      story_engine       = @story_engine,
+      updated_at         = @updated_at
   `),
 
   getAIAnalysis: db.prepare('SELECT * FROM ai_analysis WHERE ticker = ?'),
@@ -386,8 +403,25 @@ export function getAIAnalysis(ticker) {
     parameterScores: JSON.parse(row.parameter_scores || '{}'),
     governanceNotes: row.governance_notes || '',
     engine: row.engine,
+    story: row.story || null,
+    storyTags: JSON.parse(row.story_tags || '[]'),
+    storyEndMarkets: JSON.parse(row.story_end_markets || '[]'),
+    storyWhatTheyDo: JSON.parse(row.story_what_they_do || '[]'),
+    storyEngine: row.story_engine || null,
     updated_at: row.updated_at,
   };
+}
+
+export function upsertAIStory(data) {
+  return stmts.upsertAIStory.run({
+    ticker: data.ticker,
+    story: data.story,
+    story_tags: JSON.stringify(data.storyTags || []),
+    story_end_markets: JSON.stringify(data.storyEndMarkets || []),
+    story_what_they_do: JSON.stringify(data.storyWhatTheyDo || []),
+    story_engine: data.engine || 'stock.ai Algorithm',
+    updated_at: Date.now()
+  });
 }
 
 

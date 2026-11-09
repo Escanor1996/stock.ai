@@ -21,10 +21,11 @@ import {
   Settings,
   Github
 } from 'lucide-react';
-import { fetchStockData, fetchAIScore, fetchAIVerdict } from './utils/api';
+import { fetchStockData, fetchAIScore, fetchAIVerdict, fetchAIStory } from './utils/api';
 import ScoreGauge from './components/ScoreGauge';
 import StockChart from './components/StockChart';
 import QuarterlyAnalysis from './components/QuarterlyAnalysis';
+import StoryCard from './components/StoryCard';
 import Watchlist from './components/Watchlist';
 import PortfolioDashboard from './components/portfolio/PortfolioDashboard';
 import PortfolioPage from './components/portfolio/PortfolioPage';
@@ -52,6 +53,7 @@ export default function App() {
   const [isLoading, setIsLoading] = useState(true);
   const [isScoreLoading, setIsScoreLoading] = useState(false);
   const [isVerdictLoading, setIsVerdictLoading] = useState(false);
+  const [isStoryLoading, setIsStoryLoading] = useState(false);
 
   // Load saved watchlist
   useEffect(() => {
@@ -100,6 +102,7 @@ export default function App() {
       setIsLoading(true);
       setIsScoreLoading(false);
       setIsVerdictLoading(false);
+      setIsStoryLoading(false);
       try {
         const data = await fetchStockData(currentSymbol);
         if (active) setCurrentStock(data);
@@ -168,6 +171,28 @@ export default function App() {
       setIsVerdictLoading(false);
     }
   };
+  const handleGenerateAIStory = async () => {
+    setIsStoryLoading(true);
+    try {
+      const storyData = await fetchAIStory(currentSymbol, true);
+      setCurrentStock(prev => ({
+        ...prev,
+        hasAIStory: true,
+        story: storyData.story,
+        storyTags: storyData.storyTags || [],
+        storyEndMarkets: storyData.storyEndMarkets || [],
+        storyWhatTheyDo: storyData.storyWhatTheyDo || [],
+        storyEngine: storyData.engine,
+        engine: storyData.engine || prev.engine
+      }));
+    } catch (err) {
+      console.error("AI story fetch failed:", err);
+      alert("Failed to generate The Story. Please try again.");
+    } finally {
+      setIsStoryLoading(false);
+    }
+  };
+
 
   const isInWatchlist = currentStock ? watchlist.includes(currentStock.symbol) : false;
   const isPositive = currentStock ? currentStock.change >= 0 : false;
@@ -486,6 +511,13 @@ export default function App() {
               <StockChart symbol={currentStock.symbol} currentPrice={currentStock.price} />
               <QuarterlyAnalysis financials={currentStock.quarterlyFinancials} />
             </div>
+
+            {/* The Story Section */}
+            <StoryCard
+              stock={currentStock}
+              onTriggerStory={handleGenerateAIStory}
+              isLoading={isStoryLoading}
+            />
 
             {/* 360° Score Matrix Dual Engine Card */}
             <ScoreGauge

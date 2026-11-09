@@ -153,18 +153,98 @@ export async function generateAIVerdict(ticker, force = false) {
   return result;
 }
 
+// ── 3. Decoupled AI Story Engine ─────────────────────────────────────────────
+
+export async function generateAIStory(ticker, force = false) {
+  const t = normalizeTicker(ticker);
+  if (!force) {
+    const cached = db.getAIAnalysis(t);
+    if (cached && cached.story) {
+      return {
+        story: cached.story,
+        storyTags: cached.storyTags || [],
+        storyEndMarkets: cached.storyEndMarkets || [],
+        storyWhatTheyDo: cached.storyWhatTheyDo || [],
+        engine: cached.storyEngine || cached.engine || 'stock.ai Algorithm'
+      };
+    }
+  }
+
+  let stock = db.getStock(t);
+  let quote = db.getQuote(t);
+  let fund = db.getFundamentals(t);
+  let quarters = db.getQuarterlies(t);
+
+  // If data missing in DB, automatically pre-fetch it
+  if (!stock || !quote || !fund) {
+    try {
+      await getStockData(t);
+      stock = db.getStock(t);
+      quote = db.getQuote(t);
+      fund = db.getFundamentals(t);
+      quarters = db.getQuarterlies(t);
+    } catch (e) {
+      console.error(`Auto-fetch stock data failed for ${t}:`, e.message);
+    }
+  }
+
+  // Provide safe fallback objects so AI analysis never hard-crashes
+  stock = stock || { ticker: t, name: t, sector: 'Equity', industry: 'Diversified' };
+  quote = quote || { price: 0, change: 0, change_percent: 0 };
+  fund = fund || { ticker: t, pe_ratio: null, pb_ratio: null, roe: null, roce: null, debt_to_equity: null };
+  quarters = quarters || [];
+
+  let result = null;
+  if (process.env.GEMINI_API_KEY) {
+    try {
+      result = await callGeminiStoryAPI(stock, quote, fund, quarters);
+    } catch (e) {
+      console.error('Gemini Story API failed, using heuristic story engine:', e.message);
+    }
+  }
+
+  if (!result) {
+    result = computeHeuristicStory(stock, quote, fund, quarters);
+  }
+
+  // Persist story independently
+  db.upsertAIStory({
+    ticker: t,
+    story: result.story,
+    storyTags: result.storyTags,
+    storyEndMarkets: result.storyEndMarkets,
+    storyWhatTheyDo: result.storyWhatTheyDo,
+    engine: result.engine
+  });
+  const origTicker = ticker ? ticker.toUpperCase().trim() : '';
+  if (origTicker && origTicker !== t) {
+    db.upsertAIStory({
+      ticker: origTicker,
+      story: result.story,
+      storyTags: result.storyTags,
+      storyEndMarkets: result.storyEndMarkets,
+      storyWhatTheyDo: result.storyWhatTheyDo,
+      engine: result.engine
+    });
+  }
+
+  return result;
+}
+
 // ── Combined Legacy Entry ───────────────────────────────────────────────────
 
 export async function generateAIAnalysis(ticker, force = false) {
-  const [scoreResult, verdictResult] = await Promise.all([
+  const [scoreResult, verdictResult, storyResult] = await Promise.all([
     generateAIScore(ticker, force),
-    generateAIVerdict(ticker, force)
+    generateAIVerdict(ticker, force),
+    generateAIStory(ticker, force)
   ]);
 
   return {
     ...scoreResult,
     ...verdictResult,
-    engine: verdictResult.engine || scoreResult.engine
+    ...storyResult,
+    engine: storyResult.engine || verdictResult.engine || scoreResult.engine
   };
 }
 
@@ -378,6 +458,58 @@ async function callGeminiVerdictAPI(stock, quote, fund, quarters) {
   };
 }
 
+async function callGeminiStoryAPI(stock, quote, fund, quarters) {
+  const prompt = `
+    You are a senior institutional equity research analyst. Synthesize "THE STORY" for ${stock.name} (${stock.ticker}), an Indian company.
+    
+    Data:
+    - Sector: ${stock.sector || 'N/A'}, Industry: ${stock.industry || 'N/A'}
+    - Price: ₹${quote.price} (Market Cap: ${quote.market_cap ? '₹' + quote.market_cap + ' Cr' : 'N/A'})
+    - P/E: ${fund.pe_ratio || 'N/A'}x, P/B: ${fund.pb_ratio || 'N/A'}x, D/E: ${fund.debt_to_equity != null ? fund.debt_to_equity : 'N/A'}
+    - ROE: ${fund.roe || 'N/A'}%, ROCE: ${fund.roce || 'N/A'}%
+    - Recent Quarters: ${quarters.slice(-4).map(q => `${q.quarter}: Rev ₹${q.revenue} Cr, PAT ₹${q.pat} Cr`).join('; ')}
+
+    Return STRICT JSON only matching this schema:
+    {
+      "story": "<Deep, comprehensive institutional narrative answering: 1) What the company actually does and primary revenue segments (include revenue % share if known). 2) Core profit drivers and unit economics / depreciation / utilization dynamics. 3) Capex roadmap, incoming capacity / new technology pipelines, and emerging strategic partnerships or client wins. Write 1 to 2 rich, concrete paragraphs.>",
+      "tags": [
+        "#Tag1",
+        "#Tag2",
+        "#Tag3",
+        "#Tag4",
+        "#Tag5",
+        "#Tag6"
+      ],
+      "endMarkets": [
+        "<Specific customer or market segment 1>",
+        "<Specific customer or market segment 2>",
+        "<Specific customer or market segment 3>",
+        "<Specific customer or market segment 4>"
+      ],
+      "whatTheyDo": [
+        {
+          "title": "<CAPABILITY NAME IN UPPERCASE>",
+          "description": "<Specific operational detail, unit count, order win, or technology partnership.>"
+        }
+      ]
+    }
+  `;
+
+  const { text, engine } = await callLlmWithFallback(prompt);
+  const result = parseJsonFromText(text);
+
+  return {
+    story: typeof result.story === 'string' ? result.story.trim() : '',
+    storyTags: Array.isArray(result.tags) ? result.tags.map(t => String(t).startsWith('#') ? String(t) : `#${t}`) : [],
+    storyEndMarkets: Array.isArray(result.endMarkets) ? result.endMarkets.map(String) : [],
+    storyWhatTheyDo: Array.isArray(result.whatTheyDo)
+      ? result.whatTheyDo.map(item => typeof item === 'object' ? { title: String(item.title || '').toUpperCase(), description: String(item.description || '') } : { title: 'CAPABILITY', description: String(item) })
+      : [],
+    engine
+  };
+}
+
+
 // ── Heuristic Scoring & Verdict Implementations ─────────────────────────────
 
 function computeHeuristicScore(stock, quote, fund, quarters) {
@@ -494,6 +626,59 @@ function computeHeuristicVerdict(stock, quote, fund, quarters) {
     bullPoints,
     bearPoints,
     futurePoints,
+    engine: 'stock.ai Algorithm'
+  };
+}
+
+function computeHeuristicStory(stock, quote, fund, quarters) {
+  const name = stock.name || stock.ticker;
+  const sector = stock.sector || 'General';
+  const industry = stock.industry || 'Diversified Commercial Operations';
+  const roe = fund.roe ? `ROE of ${fund.roe}%` : 'disciplined capital returns';
+  const roce = fund.roce ? `ROCE of ${fund.roce}%` : 'strong capital efficiency';
+
+  const story = `${name} operates as a key enterprise player within the ${sector} sector (${industry}), delivering specialized products and services tailored to domestic Indian and expanding cross-border markets. The business model generates revenue through core contract execution and long-term client engagements, with profitability anchored by high operational capacity utilization and disciplined capital allocation yielding ${roce} and ${roe}. Management continues to direct capital expenditures toward capacity expansion, indigenization, and digital technology modernization to scale throughput and strengthen structural economic moats over the next 12 to 24 months.`;
+
+  const tags = [
+    `#${(stock.ticker || 'India').replace(/[^a-zA-Z0-9]/g, '')}`,
+    `#${(sector || 'Enterprise').replace(/[^a-zA-Z0-9]/g, '')}`,
+    '#CapexExpansion',
+    '#MakeInIndia',
+    '#MarketLeader',
+    '#SecularGrowth'
+  ];
+
+  const endMarkets = [
+    'Domestic Enterprise Clients',
+    'Public Sector & Infrastructure',
+    'Tier-1 Commercial Partners',
+    'Export & Regional Markets'
+  ];
+
+  const whatTheyDo = [
+    {
+      title: 'CORE ENTERPRISE DELIVERY',
+      description: `Primary operating division generating the dominant share of recurring revenue across ${industry}.`
+    },
+    {
+      title: 'CAPACITY & RUNWAY EXPANSION',
+      description: `Ongoing capital investment in infrastructure modernization and localized delivery to serve growing order books.`
+    },
+    {
+      title: 'STRATEGIC CLIENT PARTNERSHIPS',
+      description: `Long-term commercial framework agreements with domestic and multinational enterprise customers.`
+    },
+    {
+      title: 'VALUE-ADDED SPECIALIZATION',
+      description: `High-margin capability lines designed to expand operating EBITDA margins and enhance competitive differentiation.`
+    }
+  ];
+
+  return {
+    story,
+    storyTags: tags,
+    storyEndMarkets: endMarkets,
+    storyWhatTheyDo: whatTheyDo,
     engine: 'stock.ai Algorithm'
   };
 }

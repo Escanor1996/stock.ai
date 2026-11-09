@@ -16,7 +16,7 @@ if (!process.env.GEMINI_API_KEY && fs.existsSync(userConfigEnv)) {
 import express from 'express';
 import cors from 'cors';
 import { getStockData, getHistoricalPrices, searchStocks } from './services/stockService.js';
-import { generateAIScore, generateAIVerdict, generateAIAnalysis } from './services/aiService.js';
+import { generateAIScore, generateAIVerdict, generateAIAnalysis, generateAIStory } from './services/aiService.js';
 import { parseCASFile, parseBrokerSpreadsheet, parseEPFOPassbook, parseBankStatement, mergeBrokerPrices, mergeEPFOAccounts, mergeBankAccounts, refreshPortfolioSummary, computePortfolioAnalytics, getSamplePortfolio, exportToCSV, refreshPortfolioLiveQuotes } from './services/casService.js';
 import * as db from './db.js';
 import multer from 'multer';
@@ -97,6 +97,19 @@ app.get('/api/stock/:ticker/verdict', async (req, res) => {
   } catch (err) {
     console.error(`Error generating AI verdict for ${ticker}:`, err);
     res.status(500).json({ error: 'Failed to generate AI verdict' });
+  }
+});
+
+// ── GET /api/stock/:ticker/story — Decoupled AI Company Story & Capabilities
+app.get('/api/stock/:ticker/story', async (req, res) => {
+  const { ticker } = req.params;
+  const force = req.query.refresh === 'true' || req.query.force === 'true';
+  try {
+    const data = await generateAIStory(ticker, force);
+    res.json(data);
+  } catch (err) {
+    console.error(`Error generating AI story for ${ticker}:`, err);
+    res.status(500).json({ error: 'Failed to generate AI story: ' + err.message });
   }
 });
 

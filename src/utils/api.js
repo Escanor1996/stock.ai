@@ -38,6 +38,13 @@ export async function fetchAIVerdict(ticker, force = true) {
   return response.json();
 }
 
+export async function fetchAIStory(ticker, force = true) {
+  const t = ticker.toUpperCase();
+  const response = await fetch(`/api/stock/${encodeURIComponent(t)}/story?refresh=${force}`);
+  if (!response.ok) throw new Error('AI story generation failed');
+  return response.json();
+}
+
 export async function fetchAIAnalysis(ticker, force = true) {
   const t = ticker.toUpperCase();
   const response = await fetch(`/api/stock/${encodeURIComponent(t)}/analysis?refresh=${force}`);
@@ -182,6 +189,12 @@ function normalizeForUI(data) {
     futurePoints: hasAI ? (data.aiAnalysis.futurePoints || []) : [],
     parameterScores: hasAI ? (data.aiAnalysis.parameterScores || {}) : {},
     governanceNotes: hasAI ? (data.aiAnalysis.governanceNotes || '') : '',
+    hasAIStory: Boolean(data.aiAnalysis?.story),
+    story: data.aiAnalysis?.story || null,
+    storyTags: data.aiAnalysis?.storyTags || [],
+    storyEndMarkets: data.aiAnalysis?.storyEndMarkets || [],
+    storyWhatTheyDo: data.aiAnalysis?.storyWhatTheyDo || [],
+    storyEngine: data.aiAnalysis?.storyEngine || null,
     peers: [],
 
     lastUpdated: data.lastUpdated,
