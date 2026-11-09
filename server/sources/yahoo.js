@@ -10,6 +10,7 @@ const KNOWN_US = new Set(['AAPL', 'MSFT', 'GOOGL', 'GOOG', 'AMZN', 'META', 'NVDA
 
 export function resolveYahooSymbol(ticker) {
   const t = ticker.toUpperCase();
+  if (t === 'TATAMOTORS' || t === 'TATAMTRDVR' || t === 'TATA') return 'TMCV.NS';
   if (t.includes('.NS') || t.includes('.BO')) return t;
   if (KNOWN_US.has(t)) return t;
   return `${t}.NS`; // default to NSE

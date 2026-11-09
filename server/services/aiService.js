@@ -33,9 +33,11 @@ export async function generateAIScore(ticker, force = false) {
     }
   }
 
-  if (!stock || !quote || !fund) {
-    throw new Error(`Data missing for AI score generation for ${t}`);
-  }
+  // Provide safe fallback objects so AI analysis never hard-crashes on missing/partial vendor feeds
+  stock = stock || { ticker: t, name: t, sector: 'Equity', industry: 'Diversified' };
+  quote = quote || { price: 0, change: 0, change_percent: 0 };
+  fund = fund || { ticker: t, pe_ratio: null, pb_ratio: null, roe: null, roce: null, debt_to_equity: null };
+  quarters = quarters || [];
 
   let result = null;
   if (process.env.GEMINI_API_KEY) {
@@ -57,6 +59,15 @@ export async function generateAIScore(ticker, force = false) {
     parameterScores: result.parameterScores,
     engine: result.engine
   });
+  const origTicker = ticker ? ticker.toUpperCase().trim() : '';
+  if (origTicker && origTicker !== t) {
+    db.upsertAIScore({
+      ticker: origTicker,
+      score: result.score,
+      parameterScores: result.parameterScores,
+      engine: result.engine
+    });
+  }
 
   return result;
 }
@@ -97,9 +108,11 @@ export async function generateAIVerdict(ticker, force = false) {
     }
   }
 
-  if (!stock || !quote || !fund) {
-    throw new Error(`Data missing for AI verdict generation for ${t}`);
-  }
+  // Provide safe fallback objects so AI analysis never hard-crashes on missing/partial vendor feeds
+  stock = stock || { ticker: t, name: t, sector: 'Equity', industry: 'Diversified' };
+  quote = quote || { price: 0, change: 0, change_percent: 0 };
+  fund = fund || { ticker: t, pe_ratio: null, pb_ratio: null, roe: null, roce: null, debt_to_equity: null };
+  quarters = quarters || [];
 
   let result = null;
   if (process.env.GEMINI_API_KEY) {
@@ -124,6 +137,18 @@ export async function generateAIVerdict(ticker, force = false) {
     governanceNotes: result.governanceNotes,
     engine: result.engine
   });
+  const origTicker = ticker ? ticker.toUpperCase().trim() : '';
+  if (origTicker && origTicker !== t) {
+    db.upsertAIVerdict({
+      ticker: origTicker,
+      verdict: result.verdict,
+      bullPoints: result.bullPoints,
+      bearPoints: result.bearPoints,
+      futurePoints: result.futurePoints,
+      governanceNotes: result.governanceNotes,
+      engine: result.engine
+    });
+  }
 
   return result;
 }

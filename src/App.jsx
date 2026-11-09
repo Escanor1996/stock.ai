@@ -45,7 +45,7 @@ export default function App() {
   const [activeTab, setActiveTab] = useState('dashboard'); // 'dashboard', 'holdings', 'watchlist', 'analysis'
   const [holdingsTab, setHoldingsTab] = useState('stocks');
   const portfolio = usePortfolio();
-  const [watchlist, setWatchlist] = useState(['E2E', 'TMCV', 'TATAMOTORS', 'INFY', 'ZOMATO', 'NETWEB', 'NVDA']);
+  const [watchlist, setWatchlist] = useState(['E2E', 'TMCV', 'INFY', 'ZOMATO', 'NETWEB', 'NVDA']);
   const [isSearchModalOpen, setIsSearchModalOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [currentStock, setCurrentStock] = useState(null);
@@ -89,7 +89,8 @@ export default function App() {
   };
 
   const handleSelectStock = (symbol) => {
-    setCurrentSymbol(symbol.toUpperCase());
+    const s = symbol.toUpperCase() === 'TATAMOTORS' || symbol.toUpperCase() === 'TATA' ? 'TMCV' : symbol.toUpperCase();
+    setCurrentSymbol(s);
     setActiveTab('analysis');
   };
 
@@ -172,7 +173,7 @@ export default function App() {
   const isPositive = currentStock ? currentStock.change >= 0 : false;
 
   // Popular stock shortcut buttons
-  const popularTickers = ["E2E", "TMCV", "TATAMOTORS", "INFY", "ZOMATO", "SBIN", "AAPL", "NVDA", "NETWEB", "RELIANCE"];
+  const popularTickers = ["E2E", "TMCV", "INFY", "ZOMATO", "SBIN", "AAPL", "NVDA", "NETWEB", "RELIANCE"];
 
   return (
     <div className="min-h-screen bg-background text-foreground flex flex-col selection:bg-success selection:text-background relative" style={{ backgroundColor: '#fffcf0', color: '#100f0f' }}>
