@@ -481,11 +481,11 @@ export default function App() {
                 </div>
               </div>
             </div>
-            {/* Main Stock Chart */}
-            <StockChart symbol={currentStock.symbol} currentPrice={currentStock.price} />
-
-            {/* Quarterly Analysis Section (Recent Financials) */}
-            <QuarterlyAnalysis financials={currentStock.quarterlyFinancials} />
+            {/* Main Stock Chart & Quarterly Financials (Side by Side) */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-stretch">
+              <StockChart symbol={currentStock.symbol} currentPrice={currentStock.price} />
+              <QuarterlyAnalysis financials={currentStock.quarterlyFinancials} />
+            </div>
 
             {/* 360° Score Matrix Dual Engine Card */}
             <ScoreGauge
