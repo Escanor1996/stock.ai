@@ -17,7 +17,9 @@ import {
   ExternalLink,
   ChevronRight,
   Briefcase,
-  LayoutDashboard
+  LayoutDashboard,
+  Settings,
+  Github
 } from 'lucide-react';
 import { fetchStockData, fetchAIScore, fetchAIVerdict } from './utils/api';
 import ScoreGauge from './components/ScoreGauge';
@@ -27,6 +29,7 @@ import Watchlist from './components/Watchlist';
 import PortfolioDashboard from './components/portfolio/PortfolioDashboard';
 import PortfolioPage from './components/portfolio/PortfolioPage';
 import SearchModal from './components/SearchModal';
+import SettingsModal from './components/SettingsModal';
 import { usePortfolio } from './utils/usePortfolio';
 class ErrorBoundary extends React.Component {
   constructor(props) { super(props); this.state = { hasError: false, error: null }; }
@@ -44,6 +47,7 @@ export default function App() {
   const portfolio = usePortfolio();
   const [watchlist, setWatchlist] = useState(['E2E', 'TMCV', 'TATAMOTORS', 'INFY', 'ZOMATO', 'NETWEB', 'NVDA']);
   const [isSearchModalOpen, setIsSearchModalOpen] = useState(false);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [currentStock, setCurrentStock] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isScoreLoading, setIsScoreLoading] = useState(false);
@@ -249,6 +253,23 @@ export default function App() {
               {watchlist.length}
             </span>
           </button>
+          <button
+            type="button"
+            onClick={() => setIsSettingsOpen(true)}
+            className="p-1.5 rounded-full text-muted-foreground hover:text-foreground hover:bg-card border border-border/40 hover:border-border/80 transition-all shadow-xs"
+            title="Settings & AI Engine"
+          >
+            <Settings className="w-3.5 h-3.5" />
+          </button>
+          <a
+            href="https://github.com/Escanor1996/stock.ai"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="p-1.5 rounded-full text-muted-foreground hover:text-foreground hover:bg-card border border-border/40 hover:border-border/80 transition-all shadow-xs flex items-center justify-center cursor-pointer"
+            title="View Project on GitHub"
+          >
+            <Github className="w-3.5 h-3.5" />
+          </a>
         </div>
       </header>
 
@@ -585,6 +606,12 @@ export default function App() {
         isOpen={isSearchModalOpen}
         onClose={() => setIsSearchModalOpen(false)}
         onSelectStock={handleSelectStock}
+      />
+
+      {/* Settings Modal */}
+      <SettingsModal
+        isOpen={isSettingsOpen}
+        onClose={() => setIsSettingsOpen(false)}
       />
 
       {/* Global Footer */}

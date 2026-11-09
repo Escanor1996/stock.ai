@@ -149,6 +149,124 @@ export function getSavedAIAnalysis(ticker) {
 
 // ── Gemini Specialized Prompts ──────────────────────────────────────────────
 
+/**
+ * Executes LLM request with generous 90-second timeout.
+ * Mirrors stock-ai-android: tries Google Interactions API (gemini-3.5-flash) first,
+ * falling back to multi-model generateContent API (gemini-3.5-flash, gemini-3.6-flash,
+ * gemini-flash-lite-latest, gemini-3.8-flash) before heuristic fallback.
+ */
+export async function callLlmWithFallback(prompt, apiKey = process.env.GEMINI_API_KEY) {
+  if (!apiKey || !apiKey.trim()) {
+    throw new Error('GEMINI_API_KEY is not configured');
+  }
+  const cleanKey = apiKey.trim();
+
+  // Attempt 1: Google Generative Language Interactions API (gemini-3.5-flash)
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 90000);
+
+    const resp = await fetch('https://generativelanguage.googleapis.com/v1beta/interactions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-goog-api-key': cleanKey,
+        'Api-Revision': '2026-05-20'
+      },
+      body: JSON.stringify({
+        model: 'gemini-3.5-flash',
+        input: prompt
+      }),
+      signal: controller.signal
+    });
+    clearTimeout(timeout);
+
+    if (resp.ok) {
+      const data = await resp.json();
+      const outputStep = data.steps?.find(s => s.type === 'model_output');
+      const text = outputStep?.content?.[0]?.text;
+      if (text && text.trim().length > 0) {
+        return { text: text.trim(), engine: 'Gemini 3.5 Flash' };
+      }
+    } else {
+      const errText = await resp.text().catch(() => '');
+      console.warn(`Interactions API response code ${resp.status}: ${errText.slice(0, 150)}`);
+    }
+  } catch (err) {
+    console.warn(`Interactions API error (${err.message}), trying generateContent fallbacks...`);
+  }
+
+  // Multi-tier fallback on generateContent across reliable models
+  const fallbackModels = ['gemini-3.5-flash', 'gemini-3.6-flash', 'gemini-flash-lite-latest', 'gemini-3.8-flash'];
+  let lastError = null;
+
+  for (const model of fallbackModels) {
+    try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 90000);
+
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(cleanKey)}`;
+      const resp = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-goog-api-key': cleanKey
+        },
+        body: JSON.stringify({
+          contents: [
+            {
+              parts: [{ text: prompt }]
+            }
+          ],
+          generationConfig: {
+            responseMimeType: 'application/json'
+          }
+        }),
+        signal: controller.signal
+      });
+      clearTimeout(timeout);
+
+      if (resp.ok) {
+        const data = await resp.json();
+        const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+        if (text && text.trim().length > 0) {
+          const engineLabel = model === 'gemini-3.5-flash'
+            ? 'Gemini 3.5 Flash'
+            : model === 'gemini-3.6-flash'
+              ? 'Gemini 3.6 Flash'
+              : model === 'gemini-flash-lite-latest'
+                ? 'Gemini Flash Lite'
+                : 'Gemini 3.8 Flash';
+          return { text: text.trim(), engine: engineLabel };
+        }
+      } else {
+        const errText = await resp.text().catch(() => '');
+        console.warn(`generateContent for ${model} returned code ${resp.status}: ${errText.slice(0, 150)}`);
+        lastError = new Error(`generateContent for ${model} returned ${resp.status}: ${errText.slice(0, 100)}`);
+      }
+    } catch (err) {
+      console.warn(`generateContent for ${model} error: ${err.message}`);
+      lastError = err;
+    }
+  }
+
+  throw lastError || new Error('All Gemini live fallback endpoints failed');
+}
+
+function parseJsonFromText(rawText) {
+  let clean = rawText.replace(/```json/gi, '').replace(/```/g, '').trim();
+  try {
+    return JSON.parse(clean);
+  } catch (err) {
+    const firstBrace = clean.indexOf('{');
+    const lastBrace = clean.lastIndexOf('}');
+    if (firstBrace !== -1 && lastBrace > firstBrace) {
+      return JSON.parse(clean.slice(firstBrace, lastBrace + 1));
+    }
+    throw err;
+  }
+}
+
 async function callGeminiScoreAPI(stock, quote, fund, quarters) {
   const prompt = `
     You are an institutional equity quantitative analyst. Evaluate ${stock.name} (${stock.ticker}) across 6 core pillars and return 0-100 scores for each.
@@ -175,30 +293,21 @@ async function callGeminiScoreAPI(stock, quote, fund, quarters) {
     }
   `;
 
-  const response = await fetch('https://generativelanguage.googleapis.com/v1beta/interactions', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-goog-api-key': process.env.GEMINI_API_KEY,
-      'Api-Revision': '2026-05-20'
-    },
-    body: JSON.stringify({
-      model: 'gemini-3.5-flash',
-      input: prompt
-    })
-  });
-
-  if (!response.ok) {
-    const errText = await response.text();
-    throw new Error(`API error ${response.status}: ${errText}`);
+  const { text, engine } = await callLlmWithFallback(prompt);
+  const result = parseJsonFromText(text);
+  const score = Math.max(10, Math.min(99, Math.round(Number(result.score) || 75)));
+  const parameterScores = {};
+  if (result.parameterScores && typeof result.parameterScores === 'object') {
+    for (const [k, v] of Object.entries(result.parameterScores)) {
+      parameterScores[k] = Math.max(0, Math.min(100, Math.round(Number(v) || 70)));
+    }
   }
-  const data = await response.json();
-  const outputStep = data.steps.find(s => s.type === 'model_output');
-  const rawText = outputStep.content[0].text;
-  const cleanText = rawText.replace(/```json/g, '').replace(/```/g, '').trim();
-  const result = JSON.parse(cleanText);
-  result.engine = 'Gemini 3.5 Flash';
-  return result;
+
+  return {
+    score,
+    parameterScores,
+    engine
+  };
 }
 
 async function callGeminiVerdictAPI(stock, quote, fund, quarters) {
@@ -231,30 +340,17 @@ async function callGeminiVerdictAPI(stock, quote, fund, quarters) {
     }
   `;
 
-  const response = await fetch('https://generativelanguage.googleapis.com/v1beta/interactions', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-goog-api-key': process.env.GEMINI_API_KEY,
-      'Api-Revision': '2026-05-20'
-    },
-    body: JSON.stringify({
-      model: 'gemini-3.5-flash',
-      input: prompt
-    })
-  });
+  const { text, engine } = await callLlmWithFallback(prompt);
+  const result = parseJsonFromText(text);
 
-  if (!response.ok) {
-    const errText = await response.text();
-    throw new Error(`API error ${response.status}: ${errText}`);
-  }
-  const data = await response.json();
-  const outputStep = data.steps.find(s => s.type === 'model_output');
-  const rawText = outputStep.content[0].text;
-  const cleanText = rawText.replace(/```json/g, '').replace(/```/g, '').trim();
-  const result = JSON.parse(cleanText);
-  result.engine = 'Gemini 3.5 Flash';
-  return result;
+  return {
+    verdict: typeof result.verdict === 'string' ? result.verdict : '',
+    governanceNotes: typeof result.governanceNotes === 'string' ? result.governanceNotes : '',
+    bullPoints: Array.isArray(result.bullPoints) ? result.bullPoints.map(String) : [],
+    bearPoints: Array.isArray(result.bearPoints) ? result.bearPoints.map(String) : [],
+    futurePoints: Array.isArray(result.futurePoints) ? result.futurePoints.map(String) : [],
+    engine
+  };
 }
 
 // ── Heuristic Scoring & Verdict Implementations ─────────────────────────────

@@ -74,6 +74,19 @@ def extract_pdf_text(pdf_path, user_password=""):
     if not os.path.exists(pdf_path):
         raise BankParserError(f"Statement file not found: {pdf_path}", error_type="FILE_NOT_FOUND")
 
+    # Auto-detect libpdfium if PDFIUM_BINARY not set
+    if "PDFIUM_BINARY" not in os.environ:
+        cand_dirs = [
+            "/home/arka/code/stock-ai-android/app/src/main/jniLibs/x86_64",
+            "/home/arka/code/stock-ai-android/app/src/main/jniLibs/arm64-v8a",
+            "/data/data/com.stockai.app/lib",
+        ]
+        for cd in cand_dirs:
+            cand_so = os.path.join(cd, "libpdfium.so")
+            if os.path.exists(cand_so):
+                os.environ["PDFIUM_BINARY"] = cand_so
+                break
+
     # Generate password variants to maximize decryption success
     pwd_candidates = []
     if user_password:
@@ -143,7 +156,7 @@ def extract_pdf_text(pdf_path, user_password=""):
                 exc_str = str(exc).lower()
                 if "password" in exc_str or "unauthorized" in exc_str:
                     had_password_error = True
-    except ImportError:
+    except Exception:
         pass
 
     # 3. Tertiary engine: pypdf
@@ -160,15 +173,22 @@ def extract_pdf_text(pdf_path, user_password=""):
                             continue
                     else:
                         continue
-                pages = [p.extract_text() for p in reader.pages if p.extract_text()]
+                pages = []
+                for p in reader.pages:
+                    try:
+                        t = p.extract_text(extraction_mode="layout")
+                    except Exception:
+                        t = p.extract_text()
+                    if t and t.strip():
+                        pages.append(t)
                 full_text = "\n".join(pages).replace("\r", "\n")
                 if full_text.strip():
                     return full_text
             except Exception as exc:
                 exc_str = str(exc).lower()
-                if "password" in exc_str:
+                if "password" in exc_str or "dependencyerror" in exc_str:
                     had_password_error = True
-    except ImportError:
+    except Exception:
         pass
 
     if had_password_error or user_password:
@@ -512,31 +532,33 @@ class HDFCBankParser:
             r"HDFC\s*Bank\s*Ltd",
         ]
         return any(re.search(p, text, re.IGNORECASE) for p in markers)
+
     def parse(self, text):
         lines = [line.strip() for line in text.splitlines() if line.strip()]
 
         # 1. Account Number
-        # Standard HDFC savings account numbers are 14 digits
+        # Standard HDFC savings account numbers are 14 digits (often starting with 50)
         acc_match = re.search(r"\b(?:Account\s*(?:No\.?|Number)|A/C\s*(?:No\.?|Number))\s*[:|\-]?\s*(\d{14})\b", text, re.IGNORECASE)
         if not acc_match:
-            acc_match = re.search(r"\b(?:Account\s*(?:No\.?|Number)|A/C\s*(?:No\.?|Number))\s*[:|\-]?\s*(\d{9,16})\b", text, re.IGNORECASE)
+            acc_match = re.search(r"\b(50\d{12})\b", text)
         if not acc_match:
-            # Look for 14 digit sequence standalone in header lines
-            for line in lines[:30]:
-                standalone_match = re.search(r"\b(50[0-9]{12})\b", line)
-                if standalone_match:
-                    acc_match = standalone_match
-                    break
+            acc_match = re.search(r"\b(?:Account\s*(?:No\.?|Number)|A/C\s*(?:No\.?|Number))\s*[:|\-]?\s*(\d{9,16})\b", text, re.IGNORECASE)
         acc_number = acc_match.group(1) if acc_match else ""
 
         # 2. Account Holder Name
         holder_name = ""
-        # Match line right above "Customer ID :"
-        m_cust = re.search(r"([A-Za-z\s\.]{3,35})\n\s*Customer\s*ID\s*:", text, re.IGNORECASE)
-        if m_cust:
-            cand = m_cust.group(1).strip().upper()
-            if not any(k in cand for k in ["HDFC", "PAGE", "STATEMENT", "BANK", "BRANCH", "RELATIONSHIP", "SUMMARY"]):
-                holder_name = cand
+        # Check first line of document (HDFC statements typically start with Customer Name)
+        if lines:
+            first_line = lines[0].strip()
+            if re.match(r"^[A-Za-z\s\.]{3,35}$", first_line) and not any(k in first_line.upper() for k in ["HDFC", "BANK", "STATEMENT", "PAGE", "BRANCH", "RELATIONSHIP", "SUMMARY"]):
+                holder_name = first_line.upper()
+
+        if not holder_name:
+            m_cust = re.search(r"^\s*([A-Za-z\s\.]{3,35})\s*\n\s*Customer\s*ID\s*:", text, re.IGNORECASE | re.MULTILINE)
+            if m_cust:
+                cand = m_cust.group(1).strip().upper()
+                if not any(k in cand for k in ["HDFC", "PAGE", "STATEMENT", "BANK", "BRANCH", "RELATIONSHIP", "SUMMARY"]):
+                    holder_name = cand
 
         if not holder_name:
             m_page = re.search(r"Page\s+\d+\s+of\s+\d+\s*\n+([A-Za-z\s\.]{3,35})\n", text, re.IGNORECASE)
@@ -557,6 +579,7 @@ class HDFCBankParser:
                     if len(cand) >= 3 and not any(k in cand for k in ["BANK", "STATEMENT", "PAGE", "BRANCH", "ACCOUNT", "SOMOSREE"]):
                         holder_name = cand
                         break
+
         # 3. Branch & IFSC
         ifsc_match = re.search(r"\b(HDFC\d{7})\b", text, re.IGNORECASE)
         ifsc = ifsc_match.group(1).upper() if ifsc_match else "HDFC0001756"
@@ -569,6 +592,7 @@ class HDFCBankParser:
         if not branch:
             branch_match = re.search(r"(?:Branch\s*(?:Name)?|Branch)\s*[:|\-]?\s*([A-Za-z0-9\s\-]+?)(?:\n|IFSC|,|Pin|$)", text, re.IGNORECASE)
             branch = branch_match.group(1).strip() if branch_match else "Marathahalli"
+
         # 4. Account Type
         acc_type = "Savings Account"
         if re.search(r"CURRENT\s*ACCOUNT", text, re.IGNORECASE):
@@ -577,61 +601,33 @@ class HDFCBankParser:
             acc_type = "Salary Savings Account"
 
         # 5. Statement Period
-        period_match = re.search(r"(?:From\s*:\s*|Period\s*:\s*|Statement\s*Period\s*:\s*)(\d{2}[/-]\d{2}[/-]\d{2,4})\s*(?:To\s*:\s*|to\s*|-)\s*(\d{2}[/-]\d{2}[/-]\d{2,4})", text, re.IGNORECASE)
+        period_match = re.search(r"(?:From\s*:\s*|Period\s*:\s*|Statement\s*Period\s*:\s*|Statement\s*From\s*:\s*)(\d{2}[/-]\d{2}[/-]\d{2,4})\s*(?:To\s*:\s*|to\s*|-)\s*(\d{2}[/-]\d{2}[/-]\d{2,4})", text, re.IGNORECASE)
         stmt_from = ""
         stmt_to = ""
         if period_match:
             stmt_from = period_match.group(1).replace("-", "/")
             stmt_to = period_match.group(2).replace("-", "/")
 
-        stmt_date_match = re.search(r"(?:Statement\s*Date|Date\s*of\s*Statement)\s*[:|\-]?\s*(\d{2}[/-]\d{2}[/-]\d{2,4})", text, re.IGNORECASE)
+        stmt_date_match = re.search(r"(?:Statement\s*Date|Date\s*of\s*Statement|Statement\s*as\s*on)\s*[:|\-]?\s*(\d{2}[/-]\d{2}[/-]\d{2,4})", text, re.IGNORECASE)
         stmt_date = stmt_date_match.group(1).replace("-", "/") if stmt_date_match else (stmt_to or "")
 
-        # 6. Transactions Table Extraction
-        # Typical HDFC layout:
-        # Date | Narration | Chq/Ref No | Value Dt | Withdrawal Amt. | Deposit Amt. | Closing Balance
-        transactions = []
-        date_pattern = re.compile(r"^(\d{2}[/-]\d{2}[/-]\d{2,4})\b")
-
-        table_lines = []
-        in_txn_section = False
-
-        def is_hdfc_header_line(line):
-            patterns = [
-                r"^Page\s+\d+\s+of\s+\d+",
-                r"^(?:Customer\s*ID|Account\s*Number|Account\s*Branch|Joint\s*Holders|Statement\s*From|Account\s*Type|Nomination|Currency|Expected\s*AMB|RTGS/NEFT\s*IFSC|Savings\s*Account\s*Details|Opening\s*Balance\s*:)\b",
-                r"^(?:Txn\s*Date|Date)\s+Narration\s+(?:Withdrawals|Withdrawal|Chq)",
-                r"^(?:Marathahalli|No\.56,\s*Sai\s*Arcade|Opp\.intel|Sarjapur\s*Ring\s*Road|Bengaluru|Karnataka|560103)\b",
-                r"^\*\*\*\s*End\s*of\s*Statement",
-                r"^Signature\s*Not\s*Verified",
-                r"^Digitally\s*signed\s*by",
-                r"^Arka\s*Chakraborty$",
-                r"^SUMMARY\b",
-                r"^Total\s*Withdrawal\s*Balance",
-                r"^HDFC\s*BANK"
-            ]
-            return any(re.search(p, line.strip(), re.IGNORECASE) for p in patterns)
-
-        for line in lines:
-            if re.search(r"(?:Txn\s*Date|Date)\s+Narration\s+(?:Withdrawals|Withdrawal|Chq|Withdrawal\s+Amt)", line, re.IGNORECASE):
-                in_txn_section = True
-                continue
-            if in_txn_section:
-                if re.search(r"(?:^\*\*\*\s*End\s+of\s+Statement|SUMMARY\s*\n|Total\s+Withdrawals)", line, re.IGNORECASE) and len(transactions) > 0:
-                    break
-                table_lines.append(line)
-        candidate_lines = table_lines if table_lines else lines
-
-        # Pre-extract summary balances for running balance baseline
+        # 6. Balances
         opening_balance = None
         closing_balance = None
         summary_debits = None
         summary_credits = None
-        m_hdfc_summary = re.search(
+
+        m_s1 = re.search(
             r"Opening\s*Balance\s+Debit\s*Amount\s+Credit\s*Amount\s+Closing\s*Balance\s*\n+\s*([\d,]+\.\d{2})\s+([\d,]+\.\d{2})\s+([\d,]+\.\d{2})\s+([\d,]+\.\d{2})",
             text,
             re.IGNORECASE
         )
+        m_s2 = re.search(
+            r"([\d,]+\.\d{2})\s+([\d,]+\.\d{2})\s+([\d,]+\.\d{2})\s+([\d,]+\.\d{2})\s*\n+\s*Opening\s*Balance\s+Debit\s*Amount\s+Credit\s*Amount\s+Closing\s*Balance",
+            text,
+            re.IGNORECASE
+        )
+        m_hdfc_summary = m_s1 or m_s2
         if m_hdfc_summary:
             opening_balance = parse_amount(m_hdfc_summary.group(1))
             summary_debits = parse_amount(m_hdfc_summary.group(2))
@@ -652,127 +648,186 @@ class HDFCBankParser:
             if summary_open_match:
                 opening_balance = parse_amount(summary_open_match.group(1))
 
+        # 7. Transactions Table Extraction
+        date_pattern = re.compile(r"^(\d{2}[/-]\d{2}[/-]\d{2,4})\b")
+
+        def is_hdfc_header_line(l):
+            patterns = [
+                r"^Page\s+\d+\s+of\s+\d+",
+                r"^(?:Customer\s*ID|Account\s*Number|Account\s*Branch|Joint\s*Holders|Statement\s*From|Account\s*Type|Nomination|Currency|Expected\s*AMB|RTGS/NEFT\s*IFSC|Savings\s*Account\s*Details|Opening\s*Balance\s*:)\b",
+                r"^(?:Txn\s*Date|Date)\s+Narration",
+                r"^(?:Marathahalli|No\.56,\s*Sai\s*Arcade|Opp\.intel|Sarjapur\s*Ring\s*Road|Bengaluru|Karnataka|560103)\b",
+                r"^(?:Arka\s*Chakraborty|HDFC\s*BANK)\b",
+                r"^\:\s*(?:\d+|INR|SAVINGS|Not\s*Applicable|Ankita)",
+                r"^MICR\b",
+                r"^Opening\s*Balance\s*Limit",
+                r"^\*\*FD\s*may\s*be\s*linked",
+                r"^\*\*\*\s*Total\s*withdrawable",
+                r"^Total\s*Sweep\s*In\s*FD",
+                r"^Debit\s*Count\s*Credit\s*Count",
+                r"^Opening\s*Balance\s+Debit\s*Amount",
+                r"^\d+\s+\d+$",
+                r"^Your\s*Combined\s*statement",
+                r"^(?:Signature\s*Not\s*Verified|Digitally\s*signed\s*by)",
+            ]
+            return any(re.search(p, l.strip(), re.IGNORECASE) for p in patterns)
+
+        def is_hdfc_footer_line(l):
+            patterns = [
+                r"^\*\*\*\s*End\s*of\s*Statement",
+                r"^SUMMARY\b",
+                r"^Total\s*Withdrawal\s*Balance",
+                r"^Debit\s*Count\s*Credit\s*Count",
+                r"^Opening\s*Balance\s+Debit\s*Amount",
+                r"^Total\s*Sweep\s*In\s*FD",
+                r"^Your\s*Combined\s*statement",
+            ]
+            return any(re.search(p, l.strip(), re.IGNORECASE) for p in patterns)
+
         raw_tx_list = []
         curr_tx = None
-        for line in candidate_lines:
-            d_match = date_pattern.match(line)
-            if d_match:
+
+        for i, line in enumerate(lines):
+            line_clean = line.strip()
+            if not line_clean:
+                continue
+            if is_hdfc_footer_line(line_clean):
+                if curr_tx:
+                    raw_tx_list.append(curr_tx)
+                    curr_tx = None
+                break
+            if is_hdfc_header_line(line_clean):
+                continue
+
+            m = date_pattern.match(line_clean)
+            prev = lines[i-1].strip() if i > 0 else ""
+            is_value_dt = bool(re.search(r"Value\s*Dt\s*$", prev, re.IGNORECASE)) or bool(re.match(r"^\d{2}[/-]\d{2}[/-]\d{2,4}$", line_clean))
+            is_period = bool(re.search(r"\bTo\b\s+\d{2}[/-]\d{2}", line_clean, re.IGNORECASE))
+            money_matches = list(re.finditer(r"(?<![A-Za-z0-9])(-?\d[\d,]*(?:\.\d{2}))(?![A-Za-z0-9])", line_clean))
+
+            if m and not is_value_dt and not is_period:
                 if curr_tx:
                     raw_tx_list.append(curr_tx)
                     curr_tx = None
 
-                tx_date = d_match.group(1).replace("-", "/")
-                remainder = line[d_match.end():].strip()
-
-                money_matches = list(re.finditer(r"(?<![A-Za-z0-9])(-?\d[\d,]*(?:\.\d{2}))(?![A-Za-z0-9])", remainder))
-                if not money_matches:
-                    money_matches = list(re.finditer(r"(?<![A-Za-z0-9])(-?\d[\d,]*(?:\.\d{1,2})?)(?![A-Za-z0-9])", remainder))
-
-                if money_matches:
-                    balance_raw = money_matches[-1].group(1)
-                    closing_bal = parse_amount(balance_raw)
-
-                    wd_amt = 0.0
-                    dp_amt = 0.0
-                    if len(money_matches) >= 3:
-                        wd_amt = abs(parse_amount(money_matches[-3].group(1)) or 0.0)
-                        dp_amt = abs(parse_amount(money_matches[-2].group(1)) or 0.0)
-                    elif len(money_matches) == 2:
-                        amt_raw = money_matches[-2].group(1)
-                        wd_amt = abs(parse_amount(amt_raw) or 0.0)
-
-                    first_num_start = money_matches[0].start()
-                    desc_part = remainder[:first_num_start].strip()
-
-                    ref_match = re.search(r"\b([A-Z]{2,}[0-9]{4,}|[A-Z0-9]{8,22})\b", remainder)
-                    ref_no = ref_match.group(1) if ref_match else ""
-                    if ref_no and ref_no in desc_part:
-                        desc_part = re.sub(r"\s*" + re.escape(ref_no) + r"\s*$", "", desc_part).strip()
-
-                    tx_type = "DR" if wd_amt > 0 else ("CR" if dp_amt > 0 else "CR")
-                    amt = wd_amt if wd_amt > 0 else dp_amt
-
+                tx_date = m.group(1).replace("-", "/")
+                remainder = line_clean[m.end():].strip()
+                line_money = list(re.finditer(r"(?<![A-Za-z0-9])(-?\d[\d,]*(?:\.\d{2}))(?![A-Za-z0-9])", remainder))
+                if len(line_money) >= 1:
+                    desc = remainder[:line_money[0].start()].strip()
+                    amts = [float(x.group(1).replace(",", "")) for x in line_money]
+                    if len(amts) >= 3:
+                        wd, dp, bal = amts[0], amts[1], amts[2]
+                    elif len(amts) == 2:
+                        wd, dp, bal = amts[0], 0.0, amts[1]
+                    else:
+                        wd, dp, bal = 0.0, 0.0, amts[0]
                     curr_tx = {
                         "date": tx_date,
-                        "narration": desc_part if desc_part else "Transaction",
-                        "ref_no": ref_no,
-                        "type": tx_type,
-                        "amount": round_money(amt),
-                        "balance": round_money(closing_bal)
+                        "narration": desc if desc else remainder,
+                        "wd": wd,
+                        "dp": dp,
+                        "balance": bal,
+                        "completed": True
+                    }
+                else:
+                    curr_tx = {
+                        "date": tx_date,
+                        "narration": remainder,
+                        "wd": 0.0,
+                        "dp": 0.0,
+                        "balance": None,
+                        "completed": False
                     }
             elif curr_tx:
-                if not is_hdfc_header_line(line):
-                    curr_tx["narration"] = (curr_tx["narration"] + " " + line).strip()
+                if not curr_tx["completed"] and curr_tx["balance"] is None and len(money_matches) >= 1:
+                    amts = [float(x.group(1).replace(",", "")) for x in money_matches]
+                    if len(amts) >= 3:
+                        wd, dp, bal = amts[0], amts[1], amts[2]
+                    elif len(amts) == 2:
+                        wd, dp, bal = amts[0], 0.0, amts[1]
+                    else:
+                        wd, dp, bal = 0.0, 0.0, amts[0]
+                    curr_tx["wd"] = wd
+                    curr_tx["dp"] = dp
+                    curr_tx["balance"] = bal
+                    curr_tx["completed"] = True
+                    if money_matches[0].start() > 0:
+                        prefix = line_clean[:money_matches[0].start()].strip()
+                        if prefix:
+                            curr_tx["narration"] = (curr_tx["narration"] + " " + prefix).strip()
+                elif not curr_tx.get("completed", False):
+                    curr_tx["narration"] = (curr_tx["narration"] + " " + line_clean).strip()
+                elif curr_tx.get("completed", False) and len(money_matches) == 0 and not m:
+                    curr_tx["narration"] = (curr_tx["narration"] + " " + line_clean).strip()
+
         if curr_tx:
             raw_tx_list.append(curr_tx)
 
-        # Mathematical normalization using running balances:
+        transactions = []
         prev_balance = opening_balance
         for tx in raw_tx_list:
             bal = tx["balance"]
+            wd = tx["wd"]
+            dp = tx["dp"]
             if prev_balance is not None and bal is not None:
                 delta = round_money(bal - prev_balance)
                 if delta < 0:
-                    tx["type"] = "DR"
-                    tx["amount"] = abs(delta)
+                    tx_type = "DR"
+                    amt = abs(delta)
                 elif delta > 0:
-                    tx["type"] = "CR"
-                    tx["amount"] = delta
-                elif tx["amount"] == 0.0 and re.search(r"\bOPENING\b", tx["narration"], re.IGNORECASE):
-                    tx["type"] = "CR"
+                    tx_type = "CR"
+                    amt = delta
+                else:
+                    if re.search(r"\bOPENING\b", tx["narration"], re.IGNORECASE):
+                        tx_type = "CR"
+                    else:
+                        tx_type = "DR" if wd > 0 else "CR"
+                    amt = 0.0
+            elif wd > 0:
+                tx_type = "DR"
+                amt = wd
+            elif dp > 0:
+                tx_type = "CR"
+                amt = dp
             else:
-                if re.search(r"\bOPENING\b", tx["narration"], re.IGNORECASE):
-                    tx["type"] = "CR"
-                    tx["amount"] = 0.0
-                elif any(k in tx["narration"].upper() for k in ["DR", "DEBIT", "TRANSFER TO", "UPI/DR", "ATM-WDL", "POS-PUR"]):
-                    tx["type"] = "DR"
+                tx_type = "DR"
+                amt = 0.0
             prev_balance = bal
-            if tx["amount"] > 0 or re.search(r"\bOPENING\b", tx["narration"], re.IGNORECASE):
-                transactions.append(tx)
 
-        # Enrich transactions with merchant normalization, narration scrubbing, and spend categorization
-        for tx in transactions:
-            tx["narration"] = scrub_narration(tx.get("narration", ""))
-            tx["merchant"] = extract_merchant(tx["narration"])
-            if tx.get("type") == "DR":
-                cat, col = categorize_transaction(tx["narration"])
-                tx["category"] = cat
-                tx["color"] = col
+            narration = scrub_narration(tx["narration"])
+            merchant = extract_merchant(narration)
+            ref_m = re.search(r"\b([A-Z]{2,}[0-9]{4,}|[A-Z0-9]{8,22})\b", narration)
+            ref_no = ref_m.group(1) if ref_m else ""
+
+            if tx_type == "DR":
+                cat, col = categorize_transaction(narration)
             else:
-                tx["category"] = "Income & Deposits"
-                tx["color"] = "#22c55e"
+                cat, col = "Income & Deposits", "#22c55e"
 
-        # Derive from transactions if not found in summary
-        if closing_balance is None and transactions:
-            closing_balance = transactions[-1].get("balance", 0.0)
+            transactions.append({
+                "date": tx["date"],
+                "narration": narration,
+                "ref_no": ref_no,
+                "type": tx_type,
+                "amount": round_money(amt),
+                "balance": round_money(bal) if bal is not None else 0.0,
+                "merchant": merchant,
+                "category": cat,
+                "color": col
+            })
 
         total_credits = summary_credits if summary_credits is not None else round_money(sum(t["amount"] for t in transactions if t["type"] == "CR"))
         total_debits = summary_debits if summary_debits is not None else round_money(sum(t["amount"] for t in transactions if t["type"] == "DR"))
+        if closing_balance is None and transactions:
+            closing_balance = transactions[-1]["balance"]
         if opening_balance is None:
-            if closing_balance is not None:
-                opening_balance = round_money(closing_balance - total_credits + total_debits)
-            elif transactions:
-                first_tx = transactions[0]
-                first_bal = first_tx.get("balance", 0.0)
-                first_amt = first_tx.get("amount", 0.0)
-                if first_tx.get("type") == "CR":
-                    opening_balance = round_money(first_bal - first_amt)
-                else:
-                    opening_balance = round_money(first_bal + first_amt)
-            else:
-                opening_balance = 0.0
-
-        if closing_balance is None:
-            closing_balance = round_money((opening_balance or 0.0) + total_credits - total_debits)
+            opening_balance = round_money(closing_balance - total_credits + total_debits)
 
         net_cashflow = round_money(total_credits - total_debits)
-
-        if not stmt_date and transactions:
-            stmt_date = transactions[-1].get("date", "")
-        if not stmt_to and stmt_date:
-            stmt_to = stmt_date
-        if not stmt_from and transactions:
-            stmt_from = transactions[0].get("date", "")
+        if not stmt_date and transactions: stmt_date = transactions[-1]["date"]
+        if not stmt_to and stmt_date: stmt_to = stmt_date
+        if not stmt_from and transactions: stmt_from = transactions[0]["date"]
 
         monthly_cashflow = synthesize_monthly_cashflow(transactions)
         spending_summary = synthesize_spending_summary(transactions, stmt_from, stmt_to)
@@ -823,21 +878,16 @@ class StandardCharteredParser:
         lines = [line.strip() for line in text.splitlines() if line.strip()]
 
         # 1. Account Number
-        # SCB uses 16 digit or masked accounts
-        acc_match = re.search(r"\b(?:Account\s*(?:No\.?|Number)|A/C\s*(?:No\.?|Number))\s*[:|\-]?\s*(\d{11,16}|X{4,8}\d{4,6})\b", text, re.IGNORECASE)
-        # SCB uses 11 or 16 digit accounts
-        acc_no_m = re.search(r"ACCOUNT\s*NO\s*:\s*(\d+)", text, re.IGNORECASE)
-        if acc_no_m:
-            acc_number = acc_no_m.group(1)
-        else:
+        acc_match = re.search(r"ACCOUNT\s*NO\s*:\s*(\d+)", text, re.IGNORECASE)
+        if not acc_match:
             acc_match = re.search(r"\b(?:Account\s*(?:No\.?|Number)|A/C\s*(?:No\.?|Number))\s*[:|\-]?\s*(\d{11,16}|X{4,8}\d{4,6})\b", text, re.IGNORECASE)
-            if not acc_match:
-                for line in lines[:30]:
-                    m = re.search(r"\b(019\d{13}|\d{16})\b", line)
-                    if m:
-                        acc_match = m
-                        break
-            acc_number = acc_match.group(1) if acc_match else ""
+        if not acc_match:
+            for line in lines[:30]:
+                m = re.search(r"\b(019\d{13}|\d{16})\b", line)
+                if m:
+                    acc_match = m
+                    break
+        acc_number = acc_match.group(1) if acc_match else ""
 
         # 2. Account Holder Name
         holder_name = ""
@@ -846,27 +896,26 @@ class StandardCharteredParser:
             cand = name_m.group(1).strip().upper()
             if not any(k in cand for k in ["STANDARD", "CHARTERED", "STATEMENT", "PAGE", "BRANCH", "ACCOUNT", "NOMINEE", "REGISTERED", "CURRENCY"]):
                 holder_name = cand
-
         if not holder_name:
             for line in lines[2:15]:
                 if re.match(r"^[A-Z\s]{4,35}$", line) and not any(k in line.upper() for k in ["STANDARD", "CHARTERED", "STATEMENT", "PAGE", "BRANCH", "ACCOUNT", "NOMINEE", "REGISTERED", "CURRENCY"]):
                     holder_name = line.strip().upper()
                     break
-        # 3. Account Type / Title
+
+        # 3. Account Type
         acc_type = "Savings Account"
         if re.search(r"SUPERVALUE\s*SAVINGS", text, re.IGNORECASE):
             acc_type = "SuperValue Savings Account"
-        elif re.search(r"SAVINGS\s*ACCOUNT", text, re.IGNORECASE):
-            acc_type = "Savings Account"
         elif re.search(r"CURRENT\s*ACCOUNT", text, re.IGNORECASE):
             acc_type = "Current Account"
 
         # 4. Branch & IFSC
         ifsc_match = re.search(r"\b(SCBL\d{7})\b", text, re.IGNORECASE)
-        ifsc = ifsc_match.group(1).upper() if ifsc_match else "SCBL0036001"
+        ifsc = ifsc_match.group(1).upper() if ifsc_match else "SCBL0036081"
 
         branch_match = re.search(r"(?:BRANCH\s*:\s*|Branch\s*[:|\-]?\s*)([A-Za-z0-9\s\-]+?)(?:\n|IFSC|,|Pin|STATEMENT|CURRENCY|$)", text, re.IGNORECASE)
         branch = branch_match.group(1).strip() if branch_match else "Secunderabad"
+
         # 5. Statement Period & Date
         period_match = re.search(r"(?:Statement\s*Period|Period)\s*[:|\-]?\s*(\d{2}[/-]\d{2}[/-]\d{2,4})\s*(?:to|-)\s*(\d{2}[/-]\d{2}[/-]\d{2,4})", text, re.IGNORECASE)
         stmt_from = ""
@@ -877,7 +926,8 @@ class StandardCharteredParser:
 
         stmt_date_match = re.search(r"(?:Statement\s*Date|Date)\s*[:|\-]?\s*(\d{1,2}\s+[A-Za-z]{3}\s+\d{4}|\d{2}[/-]\d{2}[/-]\d{2,4})", text, re.IGNORECASE)
         stmt_date = stmt_date_match.group(1).replace("-", "/") if stmt_date_match else (stmt_to or "")
-        # 6. Balances from Summary Row (SCB provides Total row with deposits, withdrawals, and balance)
+
+        # 6. Balances
         opening_balance = None
         closing_balance = None
         sum_debits = None
@@ -894,26 +944,37 @@ class StandardCharteredParser:
             opening_balance = parse_amount(bal_fwd_m.group(1))
 
         if closing_balance is None:
-            closing_bal_match = re.search(r"(?:Closing\s*Balance|Ending\s*Balance|Carried\s*Forward)\s*[:|\-]?\s*(?:Rs\.?|INR|₹)?\s*(-?\d[\d,]*(?:\.\d{1,2})?)", text, re.IGNORECASE)
-            if closing_bal_match:
-                closing_balance = parse_amount(closing_bal_match.group(1))
+            c_m = re.search(r"(?:Closing\s*Balance|Ending\s*Balance|Carried\s*Forward)\s*[:|\-]?\s*(?:Rs\.?|INR|₹)?\s*(-?\d[\d,]*(?:\.\d{1,2})?)", text, re.IGNORECASE)
+            if c_m: closing_balance = parse_amount(c_m.group(1))
 
         if opening_balance is None:
-            open_bal_match = re.search(r"(?:Opening\s*Balance|Brought\s*Forward)\s*[:|\-]?\s*(?:Rs\.?|INR|₹)?\s*(-?\d[\d,]*(?:\.\d{1,2})?)", text, re.IGNORECASE)
-            if open_bal_match:
-                opening_balance = parse_amount(open_bal_match.group(1))
+            o_m = re.search(r"(?:Opening\s*Balance|Brought\s*Forward)\s*[:|\-]?\s*(?:Rs\.?|INR|₹)?\s*(-?\d[\d,]*(?:\.\d{1,2})?)", text, re.IGNORECASE)
+            if o_m: opening_balance = parse_amount(o_m.group(1))
+
+        if opening_balance is None and closing_balance is not None and sum_credits is not None and sum_debits is not None:
+            opening_balance = round_money(closing_balance - sum_credits + sum_debits)
 
         # 7. Transaction Table Extraction
-        transactions = []
         date_pattern = re.compile(r"^\s*(\d{2}\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{4}|\d{2}[/-]\d{2}[/-]\d{2,4})\b", re.IGNORECASE)
 
-        def is_scb_header_line(line):
+        def is_scb_header(l):
             patterns = [
                 r"^Page\s+\d+\s+of\s+\d+",
                 r"^MR\s*ARKA\s*CHAKRABORTY",
                 r"^BRANCH\s*ADDRESS",
-                r"^(?:Value\s*Date|Date\s+Description|Cheque\s+Deposit)",
-                r"^Total\s+[\d,]+",
+                r"^(?:Value\s*Date|Date\s+Description|Cheque\s+Deposit|Date\s+Value)",
+                r"^STATEMENT\s*DATE",
+                r"^(?:ACCOUNT\s*TYPE|ACCOUNT\s*NO|CURRENCY|NOMINATION|BRANCH\s*:)",
+                r"^(?:MICR|IFSC)",
+                r"^(?:AS\s*ARCADE|DISTRICT|HYDERABAD|TELANGANA|INDIA)",
+                r"^(?:Ground\s*Floor|NOMINEE|REGISTERED)",
+                r"^Total\s+[\d,]+\.\d{2}"
+            ]
+            return any(re.search(p, l.strip(), re.IGNORECASE) for p in patterns)
+
+        def is_scb_footer(l):
+            patterns = [
+                r"^Total\s+[\d,]+\.\d{2}",
                 r"^Dear\s*Client",
                 r"^Bank\s*deposits\s*are\s*covered",
                 r"^The\s*Ministry\s*of\s*Home",
@@ -922,123 +983,142 @@ class StandardCharteredParser:
                 r"^Platinum\s*Rewards",
                 r"^You\s*may\s*visit"
             ]
-            return any(re.search(p, line.strip(), re.IGNORECASE) for p in patterns)
+            return any(re.search(p, l.strip(), re.IGNORECASE) for p in patterns)
+
         raw_tx_list = []
         curr_tx = None
 
-        for line in lines:
-            d_match = date_pattern.match(line)
-            if d_match:
+        for i, line in enumerate(lines):
+            line_clean = line.strip()
+            if not line_clean: continue
+            if is_scb_footer(line_clean):
+                if curr_tx:
+                    raw_tx_list.append(curr_tx)
+                    curr_tx = None
+                break
+            if is_scb_header(line_clean): continue
+
+            m = date_pattern.match(line_clean)
+            money_matches = list(re.finditer(r"(?<![A-Za-z0-9])(-?\d[\d,]*(?:\.\d{2}))(?![A-Za-z0-9])", line_clean))
+
+            if m:
                 if curr_tx:
                     raw_tx_list.append(curr_tx)
                     curr_tx = None
 
-                tx_date = d_match.group(1).replace("-", "/")
-                remainder = line[d_match.end():].strip()
+                tx_date = m.group(1).replace("-", "/")
+                remainder = line_clean[m.end():].strip()
+                val_m = date_pattern.match(remainder)
+                if val_m:
+                    remainder = remainder[val_m.end():].strip()
 
-                # If line has value date after date, strip it
-                val_date_m = date_pattern.match(remainder)
-                if val_date_m:
-                    remainder = remainder[val_date_m.end():].strip()
-
-                money_matches = list(re.finditer(r"(?<![A-Za-z0-9])(-?\d[\d,]*(?:\.\d{2}))(?![A-Za-z0-9])", remainder))
-                if not money_matches:
-                    money_matches = list(re.finditer(r"(?<![A-Za-z0-9])(-?\d[\d,]*(?:\.\d{1,2})?)(?![A-Za-z0-9])", remainder))
-
-                if money_matches:
-                    balance_raw = money_matches[-1].group(1)
-                    closing_bal = parse_amount(balance_raw)
-
-                    amt = 0.0
-                    if len(money_matches) >= 2:
-                        amt_raw = money_matches[-2].group(1)
-                        amt = abs(parse_amount(amt_raw) or 0.0)
-
-                    first_num_start = money_matches[0].start()
-                    desc_part = remainder[:first_num_start].strip()
-
-                    ref_match = re.search(r"\b([A-Z]{2,}[0-9]{4,}|[A-Z0-9]{8,22})\b", remainder)
-                    ref_no = ref_match.group(1) if ref_match else ""
-                    if ref_no and ref_no in desc_part:
-                        desc_part = re.sub(r"\s*" + re.escape(ref_no) + r"\s*$", "", desc_part).strip()
-
+                line_money = list(re.finditer(r"(?<![A-Za-z0-9])(-?\d[\d,]*(?:\.\d{2}))(?![A-Za-z0-9])", remainder))
+                if len(line_money) >= 1:
+                    desc = remainder[:line_money[0].start()].strip()
+                    amts = [float(x.group(1).replace(",", "")) for x in line_money]
+                    if len(amts) == 1:
+                        amt = 0.0
+                        bal = amts[0]
+                    else:
+                        amt = amts[-2]
+                        bal = amts[-1]
                     curr_tx = {
                         "date": tx_date,
-                        "narration": desc_part if desc_part else "Transaction",
-                        "ref_no": ref_no,
-                        "type": "CR",
-                        "amount": round_money(amt),
-                        "balance": round_money(closing_bal)
+                        "narration": desc if desc else remainder,
+                        "amount": amt,
+                        "balance": bal,
+                        "completed": True
+                    }
+                else:
+                    curr_tx = {
+                        "date": tx_date,
+                        "narration": remainder,
+                        "amount": 0.0,
+                        "balance": None,
+                        "completed": False
                     }
             elif curr_tx:
-                if not is_scb_header_line(line):
-                    curr_tx["narration"] = (curr_tx["narration"] + " " + line).strip()
+                if not curr_tx["completed"] and curr_tx["balance"] is None and len(money_matches) >= 1:
+                    amts = [float(x.group(1).replace(",", "")) for x in money_matches]
+                    if len(amts) == 1:
+                        amt = 0.0
+                        bal = amts[0]
+                    else:
+                        amt = amts[-2]
+                        bal = amts[-1]
+                    curr_tx["amount"] = amt
+                    curr_tx["balance"] = bal
+                    curr_tx["completed"] = True
+                    if money_matches[0].start() > 0:
+                        prefix = line_clean[:money_matches[0].start()].strip()
+                        if prefix:
+                            curr_tx["narration"] = (curr_tx["narration"] + " " + prefix).strip()
+                elif not curr_tx.get("completed", False):
+                    curr_tx["narration"] = (curr_tx["narration"] + " " + line_clean).strip()
+                elif curr_tx.get("completed", False) and len(money_matches) == 0 and not m:
+                    curr_tx["narration"] = (curr_tx["narration"] + " " + line_clean).strip()
 
         if curr_tx:
             raw_tx_list.append(curr_tx)
 
+        transactions = []
         prev_balance = opening_balance
         for tx in raw_tx_list:
             bal = tx["balance"]
-            if prev_balance is not None and bal is not None:
+            if re.search(r"\bBALANCE\s*FORWARD\b", tx["narration"], re.IGNORECASE):
+                tx_type = "CR"
+                amt = 0.0
+                prev_balance = bal
+            elif prev_balance is not None and bal is not None:
                 delta = round_money(bal - prev_balance)
                 if delta < 0:
-                    tx["type"] = "DR"
-                    tx["amount"] = abs(delta)
+                    tx_type = "DR"
+                    amt = abs(delta)
                 elif delta > 0:
-                    tx["type"] = "CR"
-                    tx["amount"] = delta
-                elif tx["amount"] == 0.0 and re.search(r"\bBALANCE\s*FORWARD\b", tx["narration"], re.IGNORECASE):
-                    tx["type"] = "CR"
+                    tx_type = "CR"
+                    amt = delta
+                else:
+                    tx_type = "CR"
+                    amt = 0.0
+                prev_balance = bal
             else:
-                if any(k in tx["narration"].upper() for k in ["DR", "DEBIT", "TRANSFER TO", "ATM", "POS", "PAYMENT"]):
-                    tx["type"] = "DR"
-                elif tx["amount"] == 0.0 and re.search(r"\bBALANCE\s*FORWARD\b", tx["narration"], re.IGNORECASE):
-                    tx["type"] = "CR"
-            prev_balance = bal
-            transactions.append(tx)
+                tx_type = "CR" if tx["amount"] > 0 else "CR"
+                amt = tx["amount"]
+                prev_balance = bal
 
-        # Enrich transactions with merchant normalization, narration scrubbing, and spend categorization
-        for tx in transactions:
-            tx["narration"] = scrub_narration(tx.get("narration", ""))
-            tx["merchant"] = extract_merchant(tx["narration"])
-            if tx.get("type") == "DR":
-                cat, col = categorize_transaction(tx["narration"])
-                tx["category"] = cat
-                tx["color"] = col
+            narration = scrub_narration(tx["narration"])
+            merchant = extract_merchant(narration)
+            ref_m = re.search(r"\b([A-Z]{2,}[0-9]{4,}|[A-Z0-9]{8,22})\b", narration)
+            ref_no = ref_m.group(1) if ref_m else ""
+
+            if tx_type == "DR":
+                cat, col = categorize_transaction(narration)
             else:
-                tx["category"] = "Income & Deposits"
-                tx["color"] = "#22c55e"
+                cat, col = "Income & Deposits", "#22c55e"
 
-        # Balances consolidation
-        total_credits = round_money(sum(t["amount"] for t in transactions if t["type"] == "CR"))
-        total_debits = round_money(sum(t["amount"] for t in transactions if t["type"] == "DR"))
+            transactions.append({
+                "date": tx["date"],
+                "narration": narration,
+                "ref_no": ref_no,
+                "type": tx_type,
+                "amount": round_money(amt),
+                "balance": round_money(bal) if bal is not None else 0.0,
+                "merchant": merchant,
+                "category": cat,
+                "color": col
+            })
 
-        if sum_credits is not None and sum_credits > 0 and not transactions:
-            total_credits = round_money(sum_credits)
-        if sum_debits is not None and sum_debits > 0 and not transactions:
-            total_debits = round_money(sum_debits)
-
+        total_credits = sum_credits if sum_credits is not None else round_money(sum(t["amount"] for t in transactions if t["type"] == "CR"))
+        total_debits = sum_debits if sum_debits is not None else round_money(sum(t["amount"] for t in transactions if t["type"] == "DR"))
         if closing_balance is None and transactions:
-            closing_balance = transactions[-1].get("balance", 0.0)
-
+            closing_balance = transactions[-1]["balance"]
         if opening_balance is None:
-            if closing_balance is not None:
-                opening_balance = round_money(closing_balance - total_credits + total_debits)
-            else:
-                opening_balance = 0.0
-
-        if closing_balance is None:
-            closing_balance = round_money(opening_balance + total_credits - total_debits)
+            opening_balance = round_money(closing_balance - total_credits + total_debits)
 
         net_cashflow = round_money(total_credits - total_debits)
-
-        if not stmt_date and transactions:
-            stmt_date = transactions[-1].get("date", "")
-        if not stmt_to and stmt_date:
-            stmt_to = stmt_date
-        if not stmt_from and transactions:
-            stmt_from = transactions[0].get("date", "")
+        if not stmt_date and transactions: stmt_date = transactions[-1]["date"]
+        if not stmt_to and stmt_date: stmt_to = stmt_date
+        if not stmt_from and transactions: stmt_from = transactions[0]["date"]
 
         monthly_cashflow = synthesize_monthly_cashflow(transactions)
         spending_summary = synthesize_spending_summary(transactions, stmt_from, stmt_to)
@@ -1071,7 +1151,6 @@ class StandardCharteredParser:
             "bank_name": "Standard Chartered Bank",
             "accounts": [account],
         }
-
 
 class GenericBankParser:
     """Fallback parser for other Indian bank statements."""
@@ -1233,3 +1312,14 @@ def main():
 
 if __name__ == "__main__":
     main()
+def parse_bank_file(pdf_path, password="", bank_hint="auto", pdfium_lib=""):
+    try:
+        if pdfium_lib and os.path.exists(pdfium_lib):
+            os.environ["PDFIUM_BINARY"] = pdfium_lib
+        result = parse_bank_statement(pdf_path, password=password, bank_hint=bank_hint)
+        return json.dumps(result)
+    except Exception as exc:
+        return json.dumps({
+            "success": False,
+            "error": str(exc)
+        })

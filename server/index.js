@@ -1,4 +1,18 @@
-import 'dotenv/config';
+import dotenv from 'dotenv';
+import { fileURLToPath } from 'url';
+import path, { dirname } from 'path';
+import fs from 'fs';
+import os from 'os';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const envPath = process.env.DOTENV_CONFIG_PATH || path.join(__dirname, '..', '.env');
+dotenv.config({ path: envPath });
+
+// Also check ~/.config/stock-ai/.env if GEMINI_API_KEY is not in process.env
+const userConfigEnv = path.join(os.homedir(), '.config', 'stock-ai', '.env');
+if (!process.env.GEMINI_API_KEY && fs.existsSync(userConfigEnv)) {
+  dotenv.config({ path: userConfigEnv });
+}
 import express from 'express';
 import cors from 'cors';
 import { getStockData, getHistoricalPrices, searchStocks } from './services/stockService.js';
@@ -6,8 +20,6 @@ import { generateAIScore, generateAIVerdict, generateAIAnalysis } from './servic
 import { parseCASFile, parseBrokerSpreadsheet, parseEPFOPassbook, parseBankStatement, mergeBrokerPrices, mergeEPFOAccounts, mergeBankAccounts, refreshPortfolioSummary, computePortfolioAnalytics, getSamplePortfolio, exportToCSV } from './services/casService.js';
 import * as db from './db.js';
 import multer from 'multer';
-import os from 'os';
-import path from 'path';
 
 const upload = multer({
   dest: path.join(os.tmpdir(), 'stock_ai_cas_uploads'),
@@ -513,6 +525,127 @@ app.post('/api/portfolio/export/csv', (req, res) => {
   } catch (err) {
     console.error('Export CSV error:', err);
     res.status(500).json({ success: false, error: 'Failed to generate CSV' });
+  }
+});
+
+// ── Settings Endpoints (Gemini API Key Management) ──────────────────────
+app.get('/api/settings', (req, res) => {
+  const apiKey = process.env.GEMINI_API_KEY || '';
+  const hasApiKey = Boolean(apiKey && apiKey.trim().length > 0);
+  const maskedKey = hasApiKey
+    ? `${apiKey.slice(0, 6)}...${apiKey.slice(-4)}`
+    : '';
+
+  res.json({
+    success: true,
+    hasApiKey,
+    apiKeyMasked: maskedKey,
+    engine: hasApiKey ? 'Gemini 3.5 Flash' : 'stock.ai Algorithm (Offline Heuristic)',
+    envPath: fs.existsSync(envPath) ? envPath : (fs.existsSync(userConfigEnv) ? userConfigEnv : envPath)
+  });
+});
+
+app.post('/api/settings', (req, res) => {
+  let cleanKey = (req.body.apiKey || '').trim();
+
+  // If the key passed is masked (contains ellipsis or bullets), keep the existing configured key
+  if (cleanKey.includes('...') || cleanKey.includes('••••')) {
+    cleanKey = (process.env.GEMINI_API_KEY || '').trim();
+  }
+
+  process.env.GEMINI_API_KEY = cleanKey;
+
+  const targetEnv = process.env.DOTENV_CONFIG_PATH || path.join(__dirname, '..', '.env');
+  try {
+    let existingContent = '';
+    if (fs.existsSync(targetEnv)) {
+      existingContent = fs.readFileSync(targetEnv, 'utf8');
+    }
+
+    const lines = existingContent.split('\n');
+    let found = false;
+    const newLines = lines.map(line => {
+      if (line.trim().startsWith('GEMINI_API_KEY=')) {
+        found = true;
+        return `GEMINI_API_KEY=${cleanKey}`;
+      }
+      return line;
+    });
+    if (!found) {
+      newLines.push(`GEMINI_API_KEY=${cleanKey}`);
+    }
+    fs.writeFileSync(targetEnv, newLines.filter(Boolean).join('\n') + '\n', 'utf8');
+
+    res.json({
+      success: true,
+      message: cleanKey ? 'Gemini API key saved successfully' : 'API key cleared. System will use offline heuristic.',
+      hasApiKey: Boolean(cleanKey),
+      engine: cleanKey ? 'Gemini 3.5 Flash' : 'stock.ai Algorithm (Offline Heuristic)'
+    });
+  } catch (err) {
+    console.error('Failed to write .env file:', err);
+    res.status(500).json({ success: false, error: 'Failed to write settings file: ' + err.message });
+  }
+});
+
+app.post('/api/settings/test', async (req, res) => {
+  let keyToTest = (req.body.apiKey || '').trim();
+
+  // If empty or masked with ellipsis/bullets, test the existing configured environment key
+  if (!keyToTest || keyToTest.includes('...') || keyToTest.includes('••••')) {
+    keyToTest = (process.env.GEMINI_API_KEY || '').trim();
+  }
+
+  if (!keyToTest) {
+    return res.status(400).json({ success: false, error: 'No API key provided or configured to test' });
+  }
+
+  try {
+    // Try standard Google AI Studio models endpoint first
+    let response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(keyToTest)}`);
+
+    // If models endpoint failed, try generateContent
+    if (!response.ok) {
+      response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=${encodeURIComponent(keyToTest)}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: 'Respond with OK' }] }]
+        })
+      });
+    }
+
+    // Fallback to interactions endpoint
+    if (!response.ok) {
+      response = await fetch('https://generativelanguage.googleapis.com/v1beta/interactions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-goog-api-key': keyToTest,
+          'Api-Revision': '2026-05-20'
+        },
+        body: JSON.stringify({
+          model: 'gemini-3.5-flash',
+          input: 'Respond with OK'
+        })
+      });
+    }
+
+    if (!response.ok) {
+      const errText = await response.text();
+      return res.status(response.status).json({
+        success: false,
+        error: `Google API rejected the key (${response.status}): ${errText.slice(0, 150)}`
+      });
+    }
+
+    res.json({
+      success: true,
+      message: 'Connection verified! Multi-model Gemini fallback pipeline is active.'
+    });
+  } catch (err) {
+    console.error('API key test error:', err);
+    res.status(500).json({ success: false, error: 'Failed to connect to Google API: ' + err.message });
   }
 });
 

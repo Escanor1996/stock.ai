@@ -415,3 +415,35 @@ export async function exportPortfolioCSV(holdings, summary) {
   window.URL.revokeObjectURL(url);
   a.remove();
 }
+
+export async function fetchSettings() {
+  const response = await fetch('/api/settings');
+  if (!response.ok) throw new Error('Failed to fetch settings');
+  return response.json();
+}
+
+export async function saveSettings(apiKey) {
+  const response = await fetch('/api/settings', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ apiKey }),
+  });
+  if (!response.ok) {
+    const data = await response.json().catch(() => ({}));
+    throw new Error(data.error || 'Failed to save settings');
+  }
+  return response.json();
+}
+
+export async function testApiKey(apiKey) {
+  const response = await fetch('/api/settings/test', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ apiKey }),
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok || !data.success) {
+    throw new Error(data.error || 'Connection test failed');
+  }
+  return data;
+}
