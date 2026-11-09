@@ -265,10 +265,10 @@ export default function App() {
             href="https://github.com/Escanor1996/stock.ai"
             target="_blank"
             rel="noopener noreferrer"
-            className="p-1.5 rounded-full text-muted-foreground hover:text-foreground hover:bg-card border border-border/40 hover:border-border/80 transition-all shadow-xs flex items-center justify-center cursor-pointer"
+            className="p-1.5 rounded-full text-black hover:bg-card border border-border/40 hover:border-border/80 transition-all shadow-xs flex items-center justify-center cursor-pointer"
             title="View Project on GitHub"
           >
-            <Github className="w-3.5 h-3.5" />
+            <Github className="w-3.5 h-3.5 text-black" />
           </a>
         </div>
       </header>

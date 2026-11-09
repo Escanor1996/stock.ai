@@ -256,13 +256,6 @@ export default function SettingsModal({ isOpen, onClose }) {
               </button>
             </div>
 
-            <p className="text-[11px] text-muted-foreground">
-              Stored locally on this device at{' '}
-              <code className="px-1.5 py-0.5 rounded bg-muted font-mono text-[10px] text-foreground">
-                {savedSettings?.envPath || '.env'}
-              </code>
-              . Never shared with third parties.
-            </p>
           </div>
 
           {/* Test Connection Result Box */}
