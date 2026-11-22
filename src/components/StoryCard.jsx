@@ -1,10 +1,12 @@
 import React from 'react';
-import { Sparkles, RefreshCw, Loader2, BookOpen } from 'lucide-react';
+import { Sparkles, RefreshCw, Loader2, BookOpen, RotateCw } from 'lucide-react';
 
 export default function StoryCard({
   stock,
   onTriggerStory = () => {},
-  isLoading = false
+  isLoading = false,
+  onTriggerScore,
+  isScoreLoading = false
 }) {
   if (!stock) return null;
 
@@ -26,8 +28,8 @@ export default function StoryCard({
           </h2>
         </div>
 
-        {/* Engine Attribution & Action Button */}
-        <div className="flex items-center gap-2.5 self-start sm:self-auto">
+        {/* Engine Attribution & Action Buttons */}
+        <div className="flex items-center gap-2.5 self-start sm:self-auto flex-wrap">
           {hasStory && (
             <span
               className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-mono font-semibold bg-muted text-foreground border border-border/60"
@@ -36,6 +38,28 @@ export default function StoryCard({
               <Sparkles className="w-3 h-3 text-warning" />
               <span>{engine}</span>
             </span>
+          )}
+
+          {onTriggerScore && (
+            <button
+              type="button"
+              onClick={onTriggerScore}
+              disabled={isScoreLoading}
+              className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold transition-all active:scale-95 disabled:opacity-50 cursor-pointer bg-muted hover:bg-muted/80 text-foreground border border-border/60"
+              title="Recalculate AI 360° Score using latest financials"
+            >
+              {isScoreLoading ? (
+                <>
+                  <RefreshCw className="w-3 h-3 animate-spin text-muted-foreground" />
+                  <span>Scoring AI...</span>
+                </>
+              ) : (
+                <>
+                  <RotateCw className="w-3 h-3 text-muted-foreground" />
+                  <span>Refresh AI Score</span>
+                </>
+              )}
+            </button>
           )}
 
           <button

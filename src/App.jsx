@@ -22,7 +22,6 @@ import {
   Github
 } from 'lucide-react';
 import { fetchStockData, fetchAIScore, fetchAIVerdict, fetchAIStory } from './utils/api';
-import ScoreGauge from './components/ScoreGauge';
 import StockChart from './components/StockChart';
 import QuarterlyAnalysis from './components/QuarterlyAnalysis';
 import StoryCard from './components/StoryCard';
@@ -40,6 +39,46 @@ class ErrorBoundary extends React.Component {
     return this.props.children;
   }
 }
+
+const getAIScoreBarTheme = (score) => {
+  if (score >= 80) {
+    return {
+      text: 'text-info',
+      badge: 'bg-info/10 text-info border-info/30',
+      barGradient: 'from-blue-600 via-indigo-500 to-cyan-400',
+      glow: 'shadow-sm shadow-info/30',
+      border: 'border-info/30',
+      label: 'Exceptional',
+    };
+  } else if (score >= 65) {
+    return {
+      text: 'text-success',
+      badge: 'bg-success/10 text-success border-success/30',
+      barGradient: 'from-emerald-600 via-green-500 to-teal-400',
+      glow: 'shadow-sm shadow-success/30',
+      border: 'border-success/30',
+      label: 'Strong',
+    };
+  } else if (score >= 50) {
+    return {
+      text: 'text-warning',
+      badge: 'bg-warning/10 text-warning border-warning/30',
+      barGradient: 'from-amber-600 via-yellow-500 to-amber-400',
+      glow: 'shadow-sm shadow-warning/30',
+      border: 'border-warning/30',
+      label: 'Moderate',
+    };
+  } else {
+    return {
+      text: 'text-destructive',
+      badge: 'bg-destructive/10 text-destructive border-destructive/30',
+      barGradient: 'from-rose-600 via-red-500 to-orange-400',
+      glow: 'shadow-sm shadow-destructive/30',
+      border: 'border-destructive/30',
+      label: 'High Risk',
+    };
+  }
+};
 
 export default function App() {
   const urlParams = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : null;
@@ -125,9 +164,9 @@ export default function App() {
         ...prev,
         hasAIAnalysis: true,
         aiScore: scoreData.score,
-        aiCategory: scoreData.score >= 80 ? 'Exceptional' : scoreData.score >= 60 ? 'Strong' : 'Needs Attention',
+        aiCategory: scoreData.score >= 80 ? 'Exceptional' : scoreData.score >= 65 ? 'Strong' : scoreData.score >= 50 ? 'Moderate' : 'High Risk',
         score: scoreData.score,
-        scoreCategory: scoreData.score >= 80 ? 'Exceptional' : scoreData.score >= 60 ? 'Strong' : 'Needs Attention',
+        scoreCategory: scoreData.score >= 80 ? 'Exceptional' : scoreData.score >= 65 ? 'Strong' : scoreData.score >= 50 ? 'Moderate' : 'High Risk',
         parameterScores: scoreData.parameterScores || prev.parameterScores || {},
         scoreEngine: scoreData.engine,
         engine: scoreData.engine || prev.engine,
@@ -197,9 +236,6 @@ export default function App() {
 
   const isInWatchlist = currentStock ? watchlist.includes(currentStock.symbol) : false;
   const isPositive = currentStock ? currentStock.change >= 0 : false;
-
-  // Popular stock shortcut buttons
-  const popularTickers = ["E2E", "TMCV", "INFY", "ZOMATO", "SBIN", "AAPL", "NVDA", "NETWEB", "RELIANCE"];
 
   return (
     <div className="min-h-screen bg-background text-foreground flex flex-col selection:bg-success selection:text-background relative" style={{ backgroundColor: '#fffcf0', color: '#100f0f' }}>
@@ -354,24 +390,25 @@ export default function App() {
             </button>
           </div>
 
-          {/* Quick Trending Tickers Bar */}
-          <div className="hidden md:flex items-center gap-2 text-xs text-muted-foreground min-w-max">
-            <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">Trending:</span>
-            <div className="flex items-center gap-1.5">
-              {popularTickers.slice(0, 6).map((sym) => (
-                <button
-                  key={sym}
-                  onClick={() => handleSelectStock(sym)}
-                  className={`px-2.5 py-1 rounded-full font-mono text-[11px] font-semibold border transition-all ${
-                    currentSymbol === sym && activeTab === 'analysis'
-                      ? 'bg-foreground text-background border-foreground'
-                      : 'bg-card/70 hover:bg-card text-muted-foreground border-border/40 hover:text-foreground'
-                  }`}
-                >
-                  {sym}
-                </button>
-              ))}
-            </div>
+          {/* Watchlist Action Bar (Replaced Trending Tickers) */}
+          <div className="flex items-center gap-2 min-w-max shrink-0">
+            {currentStock && (
+              <button
+                onClick={() => toggleWatchlist(currentStock.symbol)}
+                className={`px-3.5 py-1.5 rounded-full text-xs font-semibold flex items-center gap-1.5 transition-all border shadow-xs cursor-pointer ${
+                  isInWatchlist
+                    ? 'bg-warning/10 text-warning border-warning/30 hover:bg-warning/20'
+                    : 'bg-card hover:bg-card/80 text-foreground border-border/60 hover:border-border'
+                }`}
+                title={isInWatchlist ? `Remove ${currentStock.symbol} from Watchlist` : `Add ${currentStock.symbol} to Watchlist`}
+              >
+                <Star className={`w-3.5 h-3.5 ${isInWatchlist ? 'fill-warning text-warning' : 'text-muted-foreground'}`} />
+                <span>{isInWatchlist ? 'Saved in Watchlist' : 'Add to Watchlist'}</span>
+                <span className="font-mono text-[10px] text-muted-foreground font-semibold">
+                  ({currentStock.symbol})
+                </span>
+              </button>
+            )}
           </div>
         </div>
         {/* Tab Views */}
@@ -432,50 +469,92 @@ export default function App() {
           {/* Main 360° Deep Dive Analysis View */}
           <div className="space-y-6">
             {/* Stock Banner Header */}
-            <div className="glass-card p-6 space-y-4 relative overflow-hidden">
+            <div className="glass-card p-5 sm:p-6 space-y-4 relative overflow-hidden">
               <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-                <div>
-                  <div className="flex items-center gap-3">
-                    <h1 className="font-serif text-2xl font-bold text-foreground tracking-tight">
-                      {currentStock.name}
-                    </h1>
-                    <span className="text-xs font-mono font-semibold bg-muted text-foreground px-2.5 py-1 rounded-full border border-border/60">
-                      {currentStock.symbol} : {currentStock.exchange}
-                    </span>
-                  </div>
-                  <p className="text-xs text-muted-foreground mt-1 flex items-center gap-2">
-                    <Building2 className="w-3.5 h-3.5 text-muted-foreground" />
-                    <span>Sector: {currentStock.sector}</span>
+                {/* Compact Left: Stock Name & Sector */}
+                <div className="shrink-0 max-w-[260px] xl:max-w-[320px]">
+                  <h1 className="font-serif text-lg sm:text-xl font-bold text-foreground tracking-tight truncate" title={currentStock.name}>
+                    {currentStock.name}
+                  </h1>
+                  <p className="text-[11px] text-muted-foreground mt-0.5 flex items-center gap-1.5 truncate">
+                    <Building2 className="w-3 h-3 text-muted-foreground shrink-0" />
+                    <span className="truncate">Sector: {currentStock.sector}</span>
                   </p>
                 </div>
 
-                {/* Stock Price & Watchlist Button */}
-                <div className="flex items-center gap-4">
-                  <div className="text-right">
-                    <div className="text-3xl font-bold font-mono text-foreground">
+                {/* Center / Right: Compact Ticker, Prominent Hero AI Score Bar & Compact Price */}
+                <div className="flex-1 flex items-center gap-3 sm:gap-4 flex-wrap sm:flex-nowrap justify-start lg:justify-end">
+                  {/* Compact Ticker Badge */}
+                  <div className="shrink-0">
+                    <span className="text-[11px] font-mono font-bold bg-muted/70 text-foreground px-2.5 py-1 rounded-lg border border-border/50 whitespace-nowrap shadow-xs">
+                      {currentStock.symbol} : {currentStock.exchange}
+                    </span>
+                  </div>
+
+                  {/* Vertical Divider */}
+                  <div className="h-8 w-[1px] bg-border/50 hidden sm:block shrink-0" />
+
+                  {/* Prominent Eye-Catching AI Score Bar */}
+                  {(() => {
+                    const hasAI = Boolean(currentStock.hasAIAnalysis && currentStock.aiScore != null);
+                    const rawScore = hasAI ? currentStock.aiScore : (currentStock.staticScore ?? currentStock.score ?? 50);
+                    const displayScore = typeof rawScore === 'number' ? Math.round(rawScore) : 50;
+                    const theme = getAIScoreBarTheme(displayScore);
+
+                    return (
+                      <div
+                        className={`flex-1 flex flex-col justify-center px-4 py-2.5 rounded-xl bg-card border ${theme.border} shadow-sm transition-all duration-300 min-w-[260px] sm:min-w-[320px] lg:min-w-[360px] max-w-full lg:max-w-[440px]`}
+                        title={hasAI ? `AI Score: ${displayScore}/100 (${currentStock.engine || 'Fin-LLM'})` : `Composite Score: ${displayScore}/100`}
+                      >
+                        <div className="flex items-center justify-between gap-3 mb-1.5">
+                          <div className="flex items-center gap-1.5">
+                            <div className={`w-5 h-5 rounded-md flex items-center justify-center ${theme.badge}`}>
+                              <Sparkles className={`w-3.5 h-3.5 ${theme.text}`} />
+                            </div>
+                            <span className="text-xs font-bold uppercase tracking-wider text-foreground">
+                              AI Score
+                            </span>
+                          </div>
+
+                          <div className="flex items-center gap-2">
+                            <span className={`text-xl sm:text-2xl font-black font-mono leading-none tracking-tight ${theme.text}`}>
+                              {displayScore}
+                            </span>
+                            <span className="text-[11px] font-mono text-muted-foreground font-semibold">/100</span>
+                            <span className={`text-[10px] font-extrabold uppercase tracking-wider px-2 py-0.5 rounded-md border ${theme.badge}`}>
+                              {theme.label}
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Prominent Dynamic Color Progress Bar */}
+                        <div className="relative w-full h-3 sm:h-3.5 bg-muted/90 rounded-full overflow-hidden p-0.5 border border-border/50">
+                          <div
+                            className={`h-full rounded-full bg-gradient-to-r ${theme.barGradient} transition-all duration-1000 ease-out ${theme.glow}`}
+                            style={{ width: `${Math.min(Math.max(displayScore, 0), 100)}%` }}
+                          />
+                        </div>
+                      </div>
+                    );
+                  })()}
+
+                  {/* Vertical Divider */}
+                  <div className="h-8 w-[1px] bg-border/50 hidden sm:block shrink-0" />
+
+                  {/* Compact Latest Stock Price */}
+                  <div className="text-left sm:text-right shrink-0">
+                    <div className="text-lg sm:text-xl font-bold font-mono text-foreground tracking-tight">
                       ₹{currentStock.price.toLocaleString()}
                     </div>
                     <div
-                      className={`text-xs font-semibold font-mono flex items-center justify-end ${
+                      className={`text-[11px] font-semibold font-mono flex items-center sm:justify-end ${
                         isPositive ? 'text-success' : 'text-destructive'
                       }`}
                     >
-                      {isPositive ? <ArrowUpRight className="w-4 h-4 mr-0.5" /> : <ArrowDownRight className="w-4 h-4 mr-0.5" />}
+                      {isPositive ? <ArrowUpRight className="w-3.5 h-3.5 mr-0.5" /> : <ArrowDownRight className="w-3.5 h-3.5 mr-0.5" />}
                       {isPositive ? '+' : ''}{currentStock.change} ({currentStock.changePercent}%)
                     </div>
                   </div>
-
-                  <button
-                    onClick={() => toggleWatchlist(currentStock.symbol)}
-                    className={`px-4 py-2 rounded-full text-xs font-semibold flex items-center gap-2 transition-all border ${
-                      isInWatchlist
-                        ? 'bg-warning/10 text-warning border-warning/30'
-                        : 'bg-muted hover:bg-muted/80 text-foreground border-border/60'
-                    }`}
-                  >
-                    <Star className={`w-3.5 h-3.5 ${isInWatchlist ? 'fill-warning text-warning' : ''}`} />
-                    <span>{isInWatchlist ? 'Saved in Watchlist' : 'Add to Watchlist'}</span>
-                  </button>
                 </div>
               </div>
 
@@ -518,11 +597,6 @@ export default function App() {
               stock={currentStock}
               onTriggerStory={handleGenerateAIStory}
               isLoading={isStoryLoading}
-            />
-
-            {/* 360° Score Matrix Dual Engine Card */}
-            <ScoreGauge
-              stock={currentStock}
               onTriggerScore={handleGenerateAIScore}
               isScoreLoading={isScoreLoading}
             />

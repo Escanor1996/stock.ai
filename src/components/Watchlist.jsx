@@ -19,7 +19,7 @@ export default function Watchlist({ watchlist, onRemoveFromWatchlist, onAddToWat
   const [customTickerInput, setCustomTickerInput] = useState('');
   const [stocksData, setStocksData] = useState({});
   const [loading, setLoading] = useState(true);
-  const [sortField, setSortField] = useState('default'); // 'default' | 'staticScore' | 'aiScore' | 'price' | 'changePercent'
+  const [sortField, setSortField] = useState('default'); // 'default' | 'aiScore' | 'price' | 'changePercent'
   const [sortDirection, setSortDirection] = useState('desc'); // 'asc' | 'desc'
 
   useEffect(() => {
@@ -83,12 +83,9 @@ export default function Watchlist({ watchlist, onRemoveFromWatchlist, onAddToWat
     let valA = 0;
     let valB = 0;
 
-    if (sortField === 'staticScore') {
-      valA = stockA.staticScore ?? stockA.score ?? 0;
-      valB = stockB.staticScore ?? stockB.score ?? 0;
-    } else if (sortField === 'aiScore') {
-      valA = stockA.aiScore ?? -1;
-      valB = stockB.aiScore ?? -1;
+    if (sortField === 'aiScore') {
+      valA = stockA.hasAIAnalysis && stockA.aiScore != null ? stockA.aiScore : (stockA.score ?? -1);
+      valB = stockB.hasAIAnalysis && stockB.aiScore != null ? stockB.aiScore : (stockB.score ?? -1);
     } else if (sortField === 'price') {
       valA = Number(stockA.price || 0);
       valB = Number(stockB.price || 0);
@@ -168,18 +165,6 @@ export default function Watchlist({ watchlist, onRemoveFromWatchlist, onAddToWat
             }`}
           >
             Default
-          </button>
-
-          <button
-            onClick={() => setQuickSort('staticScore', 'desc')}
-            className={`px-3 py-1 rounded-full text-xs font-semibold flex items-center gap-1 transition-all duration-200 ${
-              sortField === 'staticScore' && sortDirection === 'desc'
-                ? 'bg-card text-foreground shadow-xs'
-                : 'text-muted-foreground hover:text-foreground'
-            }`}
-          >
-            <BarChart2 className="w-3 h-3" />
-            <span>Highest Static Score</span>
           </button>
 
           <button
@@ -273,17 +258,10 @@ export default function Watchlist({ watchlist, onRemoveFromWatchlist, onAddToWat
                 </th>
 
                 <th
-                  onClick={() => handleSort('staticScore')}
-                  className="py-3 px-4 font-mono cursor-pointer hover:text-foreground group text-center"
-                >
-                  Static Score {renderSortIndicator('staticScore')}
-                </th>
-
-                <th
                   onClick={() => handleSort('aiScore')}
                   className="py-3 px-4 font-mono cursor-pointer hover:text-foreground group text-center"
                 >
-                  AI 360° Score {renderSortIndicator('aiScore')}
+                  AI Score {renderSortIndicator('aiScore')}
                 </th>
 
                 <th className="py-3 px-4 font-mono text-right">
@@ -350,36 +328,40 @@ export default function Watchlist({ watchlist, onRemoveFromWatchlist, onAddToWat
                       </span>
                     </td>
 
-                    {/* Static Financial Score */}
-                    <td className="py-3.5 px-4 text-center">
-                      <div className="inline-flex flex-col items-center">
-                        <div className="flex items-center gap-1">
-                          <span className="text-sm font-bold font-mono text-success">
-                            {stock.staticScore ?? stock.score ?? '—'}
-                          </span>
-                          <span className="text-[10px] text-muted-foreground font-mono">/100</span>
-                        </div>
-                        <span className="text-[9px] font-medium text-muted-foreground">
-                          {stock.staticCategory || 'Pure'}
-                        </span>
-                      </div>
-                    </td>
-
-                    {/* AI 360° Score */}
+                    {/* AI Score */}
                     <td className="py-3.5 px-4 text-center">
                       <div className="inline-flex flex-col items-center">
                         {stock.hasAIAnalysis && stock.aiScore != null ? (
-                          <>
-                            <div className="flex items-center gap-1">
-                              <span className="text-sm font-bold font-mono text-info">
-                                {stock.aiScore}
-                              </span>
-                              <span className="text-[10px] text-muted-foreground font-mono">/100</span>
-                            </div>
-                            <span className="text-[9px] font-semibold text-info">
-                              {stock.aiCategory || 'AI'}
-                            </span>
-                          </>
+                          (() => {
+                            const score = Math.round(stock.aiScore);
+                            const textCls =
+                              score >= 80 ? 'text-info' :
+                              score >= 65 ? 'text-success' :
+                              score >= 50 ? 'text-warning' :
+                              'text-destructive';
+                            const badgeCls =
+                              score >= 80 ? 'bg-info/10 text-info border-info/30' :
+                              score >= 65 ? 'bg-success/10 text-success border-success/30' :
+                              score >= 50 ? 'bg-warning/10 text-warning border-warning/30' :
+                              'bg-destructive/10 text-destructive border-destructive/30';
+                            const label =
+                              stock.aiCategory ||
+                              (score >= 80 ? 'Exceptional' : score >= 65 ? 'Strong' : score >= 50 ? 'Moderate' : 'High Risk');
+
+                            return (
+                              <>
+                                <div className="flex items-center gap-1">
+                                  <span className={`text-sm font-bold font-mono ${textCls}`}>
+                                    {score}
+                                  </span>
+                                  <span className="text-[10px] text-muted-foreground font-mono">/100</span>
+                                </div>
+                                <span className={`text-[9px] font-extrabold uppercase px-1.5 py-0.2 rounded-md border ${badgeCls}`}>
+                                  {label}
+                                </span>
+                              </>
+                            );
+                          })()
                         ) : (
                           <span className="text-[11px] text-muted-foreground italic font-mono">
                             Pending
