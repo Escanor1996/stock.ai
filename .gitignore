@@ -7,6 +7,7 @@ dist/
 *.log
 SESSION_NOTES.md
 SESSION_STATE.md
+SESSION_HANDOFF.md
 server/venv/
 uploads/
 temp/
