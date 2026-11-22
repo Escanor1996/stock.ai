@@ -20,6 +20,7 @@ import { generateAIScore, generateAIVerdict, generateAIAnalysis, generateAIStory
 import { parseCASFile, parseBrokerSpreadsheet, parseEPFOPassbook, parseBankStatement, mergeBrokerPrices, mergeEPFOAccounts, mergeBankAccounts, refreshPortfolioSummary, computePortfolioAnalytics, getSamplePortfolio, exportToCSV, refreshPortfolioLiveQuotes } from './services/casService.js';
 import * as db from './db.js';
 import multer from 'multer';
+import syncRouter from './routes/sync.js';
 
 const upload = multer({
   dest: path.join(os.tmpdir(), 'stock_ai_cas_uploads'),
@@ -29,7 +30,11 @@ const app = express();
 const port = process.env.PORT || 3001;
 
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ extended: true, limit: '50mb' }));
+
+// ── Local Wi-Fi Sync Router ──────────────────────────────────────────────────
+app.use('/api/sync', syncRouter);
 
 // ── GET /api/stock/:ticker — Full stock data (quote + fundamentals + quarters)
 app.get('/api/stock/:ticker', async (req, res) => {

@@ -473,3 +473,60 @@ export async function testApiKey(apiKey) {
   }
   return data;
 }
+
+// ── Local Wi-Fi Sync API ──────────────────────────────────────────────────────
+
+export async function fetchSyncStatus() {
+  const response = await fetch('/api/sync/status');
+  if (!response.ok) {
+    const data = await response.json().catch(() => ({}));
+    throw new Error(data.error || 'Failed to fetch sync status');
+  }
+  return response.json();
+}
+
+export async function fetchSyncExport() {
+  const response = await fetch('/api/sync/export');
+  if (!response.ok) {
+    const data = await response.json().catch(() => ({}));
+    throw new Error(data.error || 'Failed to export sync data');
+  }
+  return response.json();
+}
+
+export async function fetchSyncQr() {
+  const response = await fetch('/api/sync/qr');
+  if (!response.ok) {
+    const data = await response.json().catch(() => ({}));
+    throw new Error(data.error || 'Failed to fetch pairing QR code');
+  }
+  return response.json();
+}
+
+export async function importSyncData(data, mode = 'merge') {
+  const response = await fetch('/api/sync/import', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ mode, data }),
+  });
+  const res = await response.json().catch(() => ({}));
+  if (!response.ok || !res.success) {
+    throw new Error(res.error || 'Sync import failed');
+  }
+  return res;
+}
+
+export async function downloadSyncExportJson() {
+  const data = await fetchSyncExport();
+  const jsonStr = JSON.stringify(data, null, 2);
+  const blob = new Blob([jsonStr], { type: 'application/json' });
+  const url = window.URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `equisense_sync_export_${new Date().toISOString().slice(0, 10)}.json`;
+  document.body.appendChild(a);
+  a.click();
+  window.URL.revokeObjectURL(url);
+  a.remove();
+  return data;
+}

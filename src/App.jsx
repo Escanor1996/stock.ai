@@ -19,7 +19,8 @@ import {
   Briefcase,
   LayoutDashboard,
   Settings,
-  Github
+  Github,
+  Wifi
 } from 'lucide-react';
 import { fetchStockData, fetchAIScore, fetchAIVerdict, fetchAIStory } from './utils/api';
 import StockChart from './components/StockChart';
@@ -89,6 +90,7 @@ export default function App() {
   const [watchlist, setWatchlist] = useState(['E2E', 'TMCV', 'INFY', 'ZOMATO', 'NETWEB', 'NVDA']);
   const [isSearchModalOpen, setIsSearchModalOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [settingsTab, setSettingsTab] = useState('sync');
   const [currentStock, setCurrentStock] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isScoreLoading, setIsScoreLoading] = useState(false);
@@ -318,7 +320,22 @@ export default function App() {
           </button>
           <button
             type="button"
-            onClick={() => setIsSettingsOpen(true)}
+            onClick={() => {
+              setSettingsTab('sync');
+              setIsSettingsOpen(true);
+            }}
+            className="p-1.5 rounded-full text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/10 border border-emerald-500/30 hover:border-emerald-500/60 transition-all shadow-xs relative"
+            title="Local Wi-Fi Sync (Android Pairing & Offline Transfer)"
+          >
+            <Wifi className="w-3.5 h-3.5" />
+            <span className="absolute -top-0.5 -right-0.5 w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse" />
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setSettingsTab('engine');
+              setIsSettingsOpen(true);
+            }}
             className="p-1.5 rounded-full text-muted-foreground hover:text-foreground hover:bg-card border border-border/40 hover:border-border/80 transition-all shadow-xs"
             title="Settings & AI Engine"
           >
@@ -722,6 +739,7 @@ export default function App() {
       <SettingsModal
         isOpen={isSettingsOpen}
         onClose={() => setIsSettingsOpen(false)}
+        initialTab={settingsTab}
       />
 
       {/* Global Footer */}
